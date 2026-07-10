@@ -62,11 +62,54 @@ ug use studio
 ug exec 4.7@mono -- --editor /path/to/project.godot
 ```
 
-Version selectors accept a major (`4`), branch (`4.7`), exact semantic version
-(`4.7.1`), exact or grouped channels (`4.7.1-rc1`, `4.8-dev`), and an optional
-variant (`@standard`, `@mono`, `@double`, `@godotjs`, or `@custom:name`). Stable
-is the default channel. When two variants have the same top version, an
-unqualified selector fails as ambiguous instead of silently choosing one.
+## Install selectors
+
+`ug install SELECTOR` downloads the newest official release matching the
+selector:
+
+| Selector | Meaning |
+| --- | --- |
+| `latest` | Latest stable release |
+| `4` | Latest stable 4.x release |
+| `4.7` | Latest stable 4.7.x release |
+| `4.7.1` | Exact stable version |
+| `4.8-beta` | Latest beta in the 4.8 series |
+| `4.8-beta2` | Exact beta release |
+| `4.7@mono` | Latest stable 4.7.x .NET build |
+
+Stable is the default channel. Other supported channels are `rc`, `beta`,
+`alpha`, and `dev`, optionally followed by their release number. Build variants
+are appended with `@`: `standard`, `mono`, `double`, `godotjs`, or
+`custom:NAME`. `standard` is the default variant. Official downloads are
+available for `standard` and `mono`; other variants are imported with `--from`.
+
+Interactive downloads show resolution status, transferred bytes, speed, ETA,
+verification, extraction, and commit phases. Progress is omitted for `--quiet`,
+`--json`, and redirected output.
+
+Run `ug install --help` for all arguments and examples.
+
+## Per-project versions
+
+`.ugrc` is the `.nvmrc` equivalent. It contains one selector:
+
+```text
+4.7@mono
+```
+
+Create it and use it from that directory or any child directory:
+
+```sh
+ug pin 4.7@mono
+ug install
+ug use
+ug which
+ug exec -- --editor project.godot
+```
+
+An explicit selector always overrides `.ugrc`. Without an explicit selector,
+`install`, `use`, `which`, and `exec` search the current directory and its
+parents for the nearest `.ugrc`.
 
 ## Custom, double-precision, and GodotJS builds
 
@@ -87,14 +130,15 @@ as an official-family build without an integrity assertion.
 ## Command summary
 
 ```text
-ug install SELECTOR [--variant VARIANT] [--from PATH] [--checksum SHA256]
+ug install [SELECTOR] [--variant VARIANT] [--from PATH] [--checksum SHA256]
 ug list [--remote] [--prerelease] [--refresh]
-ug use SELECTOR
+ug use [SELECTOR]
 ug default [SELECTOR | --unset]
 ug alias set|remove|list|resolve ...
 ug current
 ug which [SELECTOR]
-ug exec SELECTOR -- GODOT_ARGS...
+ug exec [SELECTOR] -- GODOT_ARGS...
+ug pin SELECTOR
 ug uninstall SELECTOR [--force]
 ug doctor
 ug shell init zsh

@@ -46,6 +46,16 @@ pub fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     sync_dir(parent)
 }
 
+pub fn write_text(path: &Path, value: &str) -> Result<()> {
+    let parent = path.parent().context("atomic write path has no parent")?;
+    fs::create_dir_all(parent)?;
+    let mut temp = NamedTempFile::new_in(parent)?;
+    temp.write_all(value.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|e| e.error)?;
+    sync_dir(parent)
+}
+
 pub fn replace_symlink(target: &Path, link: &Path) -> Result<()> {
     let parent = link.parent().context("shim path has no parent")?;
     fs::create_dir_all(parent)?;

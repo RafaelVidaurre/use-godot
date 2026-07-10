@@ -18,6 +18,15 @@ use crate::{
     state,
 };
 
+pub trait InstallReporter {
+    fn phase(&self, _message: &str) {}
+    fn download_started(&self, _asset: &str, _total_bytes: u64) {}
+    fn download_advanced(&self, _bytes: u64) {}
+}
+
+pub struct SilentReporter;
+impl InstallReporter for SilentReporter {}
+
 pub struct InstallOptions<'a> {
     pub selector: &'a str,
     pub variant: Variant,
@@ -27,6 +36,7 @@ pub struct InstallOptions<'a> {
     pub checksum: Option<&'a str>,
     pub refresh: bool,
     pub api_base: Option<&'a str>,
+    pub reporter: &'a dyn InstallReporter,
 }
 
 pub fn install(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> {
@@ -40,6 +50,7 @@ pub fn install(paths: &Paths, options: InstallOptions<'_>) -> Result<Installatio
 }
 
 fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> {
+    options.reporter.phase("Resolving official release");
     let catalog = ReleaseCatalog::fetch(paths, options.refresh, options.api_base)?;
     let release = catalog.resolve(options.selector, true)?;
     let (version, channel) = release
@@ -57,10 +68,12 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
         bail!("{} is already installed", identity.display_short());
     }
     let asset = catalog.asset_for(release, &options.variant, options.platform, options.arch)?;
+    options.reporter.phase("Reading integrity metadata");
     let digest = catalog.authoritative_digest(release, asset)?;
     let partial = paths
         .downloads()
         .join(format!("{}.partial-{}", asset.name, std::process::id()));
+    options.reporter.download_started(&asset.name, asset.size);
     let mut response = catalog
         .client()
         .get(&asset.browser_download_url)
@@ -68,8 +81,10 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
         .with_context(|| format!("download {}", asset.browser_download_url))?
         .error_for_status()?;
     let mut output = File::create(&partial)?;
-    let (actual_sha256, verified, downloaded) = copy_and_hash(&mut response, &mut output, &digest)?;
+    let (actual_sha256, verified, downloaded) =
+        copy_and_hash(&mut response, &mut output, &digest, options.reporter)?;
     output.sync_all()?;
+    options.reporter.phase("Verifying download");
     if !verified || (asset.size > 0 && downloaded != asset.size) {
         let _ = fs::remove_file(&partial);
         bail!(
@@ -82,6 +97,7 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
     let temp = Builder::new()
         .prefix(".staging-")
         .tempdir_in(paths.versions())?;
+    options.reporter.phase("Extracting archive");
     extract_zip(&partial, temp.path())?;
     let _ = fs::remove_file(&partial);
     let binary = locate_binary(temp.path(), &options.variant, options.platform)?;
@@ -99,6 +115,7 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
     state::write_manifest(temp.path(), &installation)?;
     let relative_binary = binary.strip_prefix(temp.path())?.to_owned();
     let staging = temp.keep();
+    options.reporter.phase("Committing installation");
     atomic::atomic_dir_commit(staging, &destination)?;
     let mut committed = installation;
     committed.binary = destination.join(relative_binary);
@@ -106,6 +123,7 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
 }
 
 fn import(paths: &Paths, source: &Path, options: InstallOptions<'_>) -> Result<Installation> {
+    options.reporter.phase("Validating local build");
     if options.variant.is_official_download() && options.checksum.is_none() {
         bail!(
             "local imports for standard/mono require --checksum SHA256; custom, double, and GodotJS imports record their provenance without claiming official integrity"
@@ -129,6 +147,7 @@ fn import(paths: &Paths, source: &Path, options: InstallOptions<'_>) -> Result<I
     let temp = Builder::new()
         .prefix(".staging-")
         .tempdir_in(paths.versions())?;
+    options.reporter.phase("Importing local build");
     let payload = temp.path().join(
         source
             .file_name()
@@ -166,6 +185,7 @@ fn import(paths: &Paths, source: &Path, options: InstallOptions<'_>) -> Result<I
     state::write_manifest(temp.path(), &installation)?;
     let relative_binary = binary.strip_prefix(temp.path())?.to_owned();
     let staging_path = temp.keep();
+    options.reporter.phase("Committing installation");
     atomic::atomic_dir_commit(staging_path, &destination)?;
     let mut committed = installation;
     committed.binary = destination.join(relative_binary);
@@ -193,6 +213,7 @@ fn copy_and_hash(
     reader: &mut impl Read,
     writer: &mut impl Write,
     expected: &Digest,
+    reporter: &dyn InstallReporter,
 ) -> Result<(String, bool, u64)> {
     let mut sha256 = Sha256::new();
     let mut sha512 = Sha512::new();
@@ -207,6 +228,7 @@ fn copy_and_hash(
         sha256.update(&buffer[..count]);
         sha512.update(&buffer[..count]);
         total += count as u64;
+        reporter.download_advanced(count as u64);
     }
     let actual256 = hex::encode(sha256.finalize());
     let valid = match expected {
@@ -402,8 +424,31 @@ fn now_unix() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{cell::Cell, io::Cursor};
+
+    struct RecordingReporter(Cell<u64>);
+    impl InstallReporter for RecordingReporter {
+        fn download_advanced(&self, bytes: u64) {
+            self.0.set(self.0.get() + bytes);
+        }
+    }
+
     #[test]
     fn imported_version_handles_godot_tags() {
         assert_eq!(parse_import_version("4.7-rc2").unwrap().1, Channel::Rc(2));
+    }
+
+    #[test]
+    fn download_reports_every_written_byte() {
+        let bytes = b"verified download";
+        let digest = Digest::Sha256(hex::encode(Sha256::digest(bytes)));
+        let reporter = RecordingReporter(Cell::new(0));
+        let mut output = Vec::new();
+        let (_, verified, total) =
+            copy_and_hash(&mut Cursor::new(bytes), &mut output, &digest, &reporter).unwrap();
+        assert!(verified);
+        assert_eq!(total, bytes.len() as u64);
+        assert_eq!(reporter.0.get(), total);
+        assert_eq!(output, bytes);
     }
 }

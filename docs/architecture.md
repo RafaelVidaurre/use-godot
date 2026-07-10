@@ -22,6 +22,7 @@ silently changing an established environment.
 
 - `model`: version/channel/variant identities and persisted manifests.
 - `resolve`: installed selector and alias resolution with cycle/ambiguity checks.
+- `project`: atomic `.ugrc` writes and nearest-parent project discovery.
 - `remote`: cached GitHub release discovery and official asset mapping.
 - `install`: streaming hash verification, secure extraction, local import, and
   atomic installation commit.

@@ -126,7 +126,8 @@ fn official_download_is_verified_and_committed_atomically() {
     ug(root.path())
         .args(["install", "4.7", "--api-base", &api])
         .assert()
-        .success();
+        .success()
+        .stderr(predicate::str::is_empty());
     handle.join().unwrap();
     ug(root.path())
         .args(["which", "4.7"])
@@ -192,6 +193,50 @@ fn shell_integration_is_explicit_for_zsh_bash_and_fish() {
             ))
             .stdout(predicate::str::contains(marker));
     }
+}
+
+#[test]
+fn project_file_drives_install_use_which_and_exec() {
+    let root = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+    let sources = TempDir::new().unwrap();
+    let child = project.path().join("game/levels");
+    fs::create_dir_all(&child).unwrap();
+    let double = fake_godot(&sources, "Godot-double");
+
+    ug(root.path())
+        .current_dir(project.path())
+        .args(["pin", "4.7@double"])
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_to_string(project.path().join(".ugrc")).unwrap(),
+        "4.7@double\n"
+    );
+
+    ug(root.path())
+        .current_dir(&child)
+        .args(["install", "--from"])
+        .arg(&double)
+        .assert()
+        .success();
+    ug(root.path())
+        .current_dir(&child)
+        .arg("use")
+        .assert()
+        .success();
+    ug(root.path())
+        .current_dir(&child)
+        .arg("which")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Godot-double"));
+    ug(root.path())
+        .current_dir(&child)
+        .args(["exec", "--", "--editor", "project.godot"])
+        .assert()
+        .success()
+        .stdout("fake:--editor project.godot\n");
 }
 
 fn godot_zip() -> Vec<u8> {

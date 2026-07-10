@@ -2,6 +2,7 @@ pub mod atomic;
 pub mod install;
 pub mod model;
 pub mod paths;
+pub mod project;
 pub mod remote;
 pub mod resolve;
 pub mod state;

@@ -10,12 +10,14 @@ cargo build --release
 ```
 
 Unit tests cover release tags, variant identity, semantic ordering, channel
-resolution, alias cycles, ambiguity, and import parsing.
+resolution, alias cycles, ambiguity, import parsing, project-file discovery,
+and download progress accounting.
 
 Integration tests execute the compiled CLI against temporary roots and cover:
 
 - independent variants, aliases, defaults, active selection, one-shot execution,
   uninstall refusal, and forced reference cleanup;
+- `.ugrc` pinning and parent discovery across install/use/which/exec;
 - all non-official identity families (`double`, `godotjs`, `custom:name`);
 - a mocked official release API and ZIP download with a valid SHA-256 digest;
 - checksum rejection with no canonical install or partial download left behind;

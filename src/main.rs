@@ -1,19 +1,22 @@
 use std::{
     collections::BTreeMap,
     env, fs,
-    io::{self},
+    io::{self, IsTerminal},
     path::PathBuf,
     process::{Command, ExitCode},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use use_godot::{
     Paths, State, Variant,
     atomic::{self, StateLock},
-    install::{self, InstallOptions},
+    install::{self, InstallOptions, InstallReporter},
+    project,
     remote::ReleaseCatalog,
     resolve_installed,
     state::load_installations,
@@ -35,18 +38,29 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Install an official release or import a local build.
+    #[command(
+        after_long_help = "Examples:\n  ug install 4              Latest stable Godot 4\n  ug install 4.7            Latest stable Godot 4.7\n  ug install 4.7.1          Exact stable version\n  ug install 4.8-beta       Latest 4.8 beta\n  ug install 4.7@mono       Official .NET build\n  ug install                Selector from .ugrc\n  ug install 4.7@double --from /path/to/Godot.app"
+    )]
     Install {
-        selector: String,
-        #[arg(long)]
+        /// Selector: latest, MAJOR[.MINOR[.PATCH]][-CHANNEL[N]][@VARIANT].
+        #[arg(value_name = "SELECTOR")]
+        selector: Option<String>,
+        /// Variant: standard, mono, double, godotjs, or custom:NAME.
+        #[arg(long, value_name = "VARIANT")]
         variant: Option<Variant>,
-        #[arg(long)]
+        /// Import a local executable or application bundle instead of downloading.
+        #[arg(long, value_name = "PATH")]
         from: Option<PathBuf>,
-        #[arg(long)]
+        /// Required SHA-256 for local standard or mono imports.
+        #[arg(long, value_name = "SHA256")]
         checksum: Option<String>,
-        #[arg(long)]
+        /// Override the detected target platform.
+        #[arg(long, value_name = "PLATFORM")]
         platform: Option<String>,
-        #[arg(long)]
+        /// Override the detected target architecture.
+        #[arg(long, value_name = "ARCH")]
         arch: Option<String>,
+        /// Refresh cached official release metadata.
         #[arg(long)]
         refresh: bool,
         #[arg(long, hide = true, env = "UG_RELEASE_API")]
@@ -64,7 +78,10 @@ enum Commands {
         api_base: Option<String>,
     },
     /// Select an installed version for the managed godot shim.
-    Use { selector: String },
+    Use {
+        /// Installed selector; reads .ugrc when omitted.
+        selector: Option<String>,
+    },
     /// Get, set, or clear the default selection.
     Default {
         selector: Option<String>,
@@ -82,9 +99,15 @@ enum Commands {
     Which { selector: Option<String> },
     /// Run one command with an installed Godot without switching.
     Exec {
-        selector: String,
+        /// Installed selector; reads .ugrc when omitted.
+        selector: Option<String>,
         #[arg(last = true, required = true)]
         args: Vec<String>,
+    },
+    /// Write a project selector to .ugrc in the current directory.
+    Pin {
+        /// Selector stored verbatim, such as 4.7@mono or 4.8-beta.
+        selector: String,
     },
     /// Remove an installed version.
     Uninstall {
@@ -166,6 +189,7 @@ fn run(cli: Cli) -> Result<u8> {
             api_base,
         } => {
             let _lock = lock(&paths)?;
+            let selector = selector_or_project(selector)?;
             let platform = platform.unwrap_or_else(host_platform);
             let arch = arch.unwrap_or_else(host_arch);
             let (selector, suffix_variant) = match selector.rsplit_once('@') {
@@ -176,7 +200,9 @@ fn run(cli: Cli) -> Result<u8> {
                 bail!("specify the install variant either as @variant or --variant, not both");
             }
             let variant = variant.or(suffix_variant).unwrap_or(Variant::Standard);
-            let item = install::install(
+            let progress =
+                CliInstallProgress::new(!flags.quiet && !flags.json && io::stderr().is_terminal());
+            let result = install::install(
                 &paths,
                 InstallOptions {
                     selector: &selector,
@@ -187,12 +213,15 @@ fn run(cli: Cli) -> Result<u8> {
                     checksum: checksum.as_deref(),
                     refresh,
                     api_base: api_base.as_deref(),
+                    reporter: &progress,
                 },
-            )?;
+            );
+            progress.finish();
+            let item = result?;
             output(
                 flags,
                 &item,
-                format!("installed {}", item.identity.display_short()),
+                format!("Installed {}", item.identity.display_short()),
             )?;
         }
         Commands::List {
@@ -242,6 +271,7 @@ fn run(cli: Cli) -> Result<u8> {
         }
         Commands::Use { selector } => {
             let _lock = lock(&paths)?;
+            let selector = selector_or_project(selector)?;
             paths.ensure()?;
             let mut state = State::load(&paths)?;
             let items = load_installations(&paths)?;
@@ -298,10 +328,13 @@ fn run(cli: Cli) -> Result<u8> {
         Commands::Which { selector } => {
             let state = State::load(&paths)?;
             let items = load_installations(&paths)?;
-            let selector = selector
-                .or_else(|| state.active.clone())
-                .or_else(|| state.default.clone())
-                .context("no selector, active version, or default")?;
+            let selector = match selector {
+                Some(selector) => Some(selector),
+                None => project_selector()?,
+            }
+            .or_else(|| state.active.clone())
+            .or_else(|| state.default.clone())
+            .context("no selector, .ugrc, active version, or default")?;
             let item = resolve_installed(&selector, &state, &items)?;
             if flags.json {
                 print_json(item)?;
@@ -310,6 +343,7 @@ fn run(cli: Cli) -> Result<u8> {
             }
         }
         Commands::Exec { selector, args } => {
+            let selector = selector_or_project(selector)?;
             let state = State::load(&paths)?;
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
@@ -318,6 +352,18 @@ fn run(cli: Cli) -> Result<u8> {
                 .status()
                 .with_context(|| format!("execute {}", item.binary.display()))?;
             return Ok(status.code().unwrap_or(1).clamp(0, 255) as u8);
+        }
+        Commands::Pin { selector } => {
+            let directory = env::current_dir().context("read current directory")?;
+            let path = project::pin(&directory, &selector)?;
+            if flags.json {
+                let mut value = BTreeMap::new();
+                value.insert("path", path.display().to_string());
+                value.insert("selector", selector);
+                print_json(&value)?;
+            } else if !flags.quiet {
+                println!("Pinned {selector} in {}", path.display());
+            }
         }
         Commands::Uninstall { selector, force } => uninstall(flags, &paths, &selector, force)?,
         Commands::Doctor => return doctor(flags, &paths),
@@ -330,6 +376,59 @@ fn run(cli: Cli) -> Result<u8> {
 struct OutputFlags {
     json: bool,
     quiet: bool,
+}
+
+struct CliInstallProgress {
+    bar: ProgressBar,
+}
+
+impl CliInstallProgress {
+    fn new(enabled: bool) -> Self {
+        let bar = if enabled {
+            let bar = ProgressBar::new_spinner();
+            bar.enable_steady_tick(Duration::from_millis(80));
+            bar
+        } else {
+            ProgressBar::hidden()
+        };
+        Self { bar }
+    }
+
+    fn spinner_style() -> ProgressStyle {
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .expect("valid progress template")
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ")
+    }
+
+    fn finish(&self) {
+        self.bar.finish_and_clear();
+    }
+}
+
+impl InstallReporter for CliInstallProgress {
+    fn phase(&self, message: &str) {
+        self.bar.set_style(Self::spinner_style());
+        self.bar.set_message(message.to_owned());
+        self.bar.tick();
+    }
+
+    fn download_started(&self, asset: &str, total_bytes: u64) {
+        self.bar.set_length(total_bytes);
+        self.bar.set_position(0);
+        self.bar.set_style(
+            ProgressStyle::with_template(
+                "{spinner:.cyan} {msg} [{bar:36.cyan/blue}] {bytes}/{total_bytes} {bytes_per_sec} ETA {eta}",
+            )
+            .expect("valid progress template")
+            .progress_chars("=>-"),
+        );
+        self.bar.set_message(format!("Downloading {asset}"));
+        self.bar.tick();
+    }
+
+    fn download_advanced(&self, bytes: u64) {
+        self.bar.inc(bytes);
+    }
 }
 
 fn alias_command(flags: OutputFlags, paths: &Paths, command: AliasCommand) -> Result<()> {
@@ -588,6 +687,19 @@ fn shell_command(paths: &Paths, command: ShellCommand) -> Result<()> {
 fn lock(paths: &Paths) -> Result<StateLock> {
     paths.ensure()?;
     StateLock::acquire(&paths.lock())
+}
+
+fn selector_or_project(explicit: Option<String>) -> Result<String> {
+    if let Some(selector) = explicit {
+        return Ok(selector);
+    }
+    project_selector()?
+        .context("no selector provided and no .ugrc found in this directory or its parents")
+}
+
+fn project_selector() -> Result<Option<String>> {
+    let directory = env::current_dir().context("read current directory")?;
+    Ok(project::discover(&directory)?.map(|project| project.selector))
 }
 
 fn shell_single_quote(value: &str) -> String {
