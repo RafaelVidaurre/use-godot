@@ -21,4 +21,7 @@ trap - EXIT HUP INT TERM
 
 printf 'Installed ug at %s\n' "$destination"
 printf 'No shell files or Godot paths were changed.\n'
-printf "For this zsh session: eval \"\$(%s shell init zsh)\"\n" "$destination"
+printf 'Initialize your current shell with one of:\n'
+printf "  zsh:  eval \"\$(%s shell init zsh)\"\n" "$destination"
+printf "  bash: eval \"\$(%s shell init bash)\"\n" "$destination"
+printf '  fish: %s shell init fish | source\n' "$destination"

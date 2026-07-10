@@ -26,7 +26,6 @@ silently changing an established environment.
 - `install`: streaming hash verification, secure extraction, local import, and
   atomic installation commit.
 - `state` / `atomic`: JSON persistence, process locking, and symlink replacement.
-- `migration`: preview and narrowly-scoped, backed-up zsh integration.
 - `main`: CLI policy, structured output, execution, doctor, and shell support.
 
 The platform, architecture, release API, and entire managed filesystem root are
@@ -74,14 +73,13 @@ renames the installation to `.trash-*`, then updates references, then removes
 the trash. A crash can therefore leave hidden staging/trash evidence, never a
 half-populated canonical installation; `doctor` reports it.
 
-Automated operations remain inside the injected managed root. Shell files and
-legacy script/link locations are accepted only as explicit migration arguments;
-they are never encoded as user- or machine-specific product defaults.
+Automated operations remain inside the injected managed root. Shell integration
+is emitted to standard output and never assumes or edits a startup file.
 
 ## Portability boundaries
 
 The core and release mapping include macOS, Linux, and Windows naming. macOS is
 the production-tested extraction target in 0.1. Windows symlink replacement and
 platform-specific executable discovery need dedicated CI before claiming
-production support. Shell integration is generated for zsh; completion
-generation already uses a shell-neutral command model.
+production support. Shell integration is generated for zsh, bash, and fish
+from one command model; standalone completions support additional shells.

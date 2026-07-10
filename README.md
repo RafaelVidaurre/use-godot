@@ -20,9 +20,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release
 ```
 
-All integration tests use temporary `--root` directories, shell fixtures, and
-mock servers. They do not read or mutate real applications, shell startup files,
-legacy tools, or system executable paths.
+All integration tests use temporary `--root` directories and mock servers. They
+do not read or mutate applications, shell startup files, or system executable
+paths.
 
 ## Safe installation
 
@@ -31,16 +31,26 @@ files or system paths:
 
 ```sh
 ./scripts/install.sh
-eval "$("$HOME/.local/bin/ug" shell init zsh)"
 ```
 
-The second command changes only the current shell. Confirm the binary and shim
-locations before considering persistent migration:
+Initialize only the current shell with the matching command:
+
+```sh
+# zsh
+eval "$("$HOME/.local/bin/ug" shell init zsh)"
+
+# bash
+eval "$("$HOME/.local/bin/ug" shell init bash)"
+
+# fish
+"$HOME/.local/bin/ug" shell init fish | source
+```
+
+Confirm the binary and shim locations:
 
 ```sh
 ug --version
 ug doctor
-ug migrate plan
 ```
 
 By default, managed data lives in `~/.local/share/use-godot`. Override it with
@@ -107,9 +117,11 @@ ug exec SELECTOR -- GODOT_ARGS...
 ug uninstall SELECTOR [--force]
 ug doctor
 ug shell init zsh
+ug shell init bash
+ug shell init fish
 ug shell completions zsh
-ug migrate plan
-ug migrate apply --zshrc PATH --ug-binary ABSOLUTE_PATH --yes
+ug shell completions bash
+ug shell completions fish
 ```
 
 Commands that expose records support global `--json`; global `--quiet` removes
@@ -130,8 +142,8 @@ managed state, and `exec` passes through the child exit code.
   rename, and clears aliases that point to the removed identity.
 - `doctor` identifies incomplete staging/trash directories for recovery without
   deleting evidence automatically.
-- Migration backs up `.zshrc`, replaces only the `ug` alias, and leaves other
-  shell configuration and external paths unchanged.
+- Shell integration is emitted to standard output for explicit evaluation; it
+  never edits startup files.
 
-See [architecture](docs/architecture.md), [migration](docs/migration.md), and
-[testing](docs/testing.md) for design rationale and operational details.
+See [architecture](docs/architecture.md), [shell integration](docs/shell-integration.md),
+and [testing](docs/testing.md) for design rationale and operational details.

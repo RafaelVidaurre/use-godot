@@ -2,11 +2,10 @@
 
 - Build `ug` as a production-quality Godot version manager, not as a collection
   of machine-specific shell shortcuts.
-- Preserve the existing `~/scripts/switch_godot_version.sh`, `~/.zshrc` alias,
-  and `/usr/local/bin/godot` target until an explicit, verified install or
-  migration step is ready.
-- Never use `sudo`, mutate `/Applications`, rewrite shell startup files, or
-  replace the live Godot symlink during automated tests.
+- Treat all shell configuration, application directories, pre-existing version
+  managers, and system command links as external user state.
+- Never use privilege escalation or mutate external user/system state during
+  automated tests.
 - Make filesystem roots and platform services injectable so tests use temporary
   directories and fixtures.
 - Prefer atomic operations for downloads, extraction, configuration writes,
@@ -18,7 +17,9 @@
   selectable.
 - Keep CLI output scriptable: stable exit codes, a quiet mode where useful, and
   structured output for commands that benefit from automation.
+- Support common shells without assuming a user's preferred shell.
 - Document architecture and non-obvious decisions. Add tests for version
-  resolution, aliases, variant selection, interrupted operations, and migration.
+  resolution, aliases, variant selection, interrupted operations, and shell
+  integration.
 - Commit implementation in coherent increments and leave the repository in a
   runnable, documented state.

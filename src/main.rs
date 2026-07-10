@@ -2,19 +2,18 @@ use std::{
     collections::BTreeMap,
     env, fs,
     io::{self},
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, ExitCode},
 };
 
 use anyhow::{Context, Result, bail};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 use serde::Serialize;
 use use_godot::{
     Paths, State, Variant,
     atomic::{self, StateLock},
     install::{self, InstallOptions},
-    migration,
     remote::ReleaseCatalog,
     resolve_installed,
     state::load_installations,
@@ -93,22 +92,12 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Diagnose managed state and optionally inspect legacy paths.
-    Doctor {
-        #[arg(long)]
-        legacy_link: Option<PathBuf>,
-        #[arg(long)]
-        legacy_script: Option<PathBuf>,
-    },
+    /// Diagnose managed state.
+    Doctor,
     /// Emit shell setup or completion scripts.
     Shell {
         #[command(subcommand)]
         command: ShellCommand,
-    },
-    /// Preview or explicitly apply conservative zsh migration.
-    Migrate {
-        #[command(subcommand)]
-        command: MigrateCommand,
     },
 }
 
@@ -124,7 +113,7 @@ enum AliasCommand {
 enum ShellCommand {
     Init {
         #[arg(value_enum)]
-        shell: Shell,
+        shell: IntegrationShell,
     },
     Completions {
         #[arg(value_enum)]
@@ -132,27 +121,21 @@ enum ShellCommand {
     },
 }
 
-#[derive(Subcommand, Debug)]
-enum MigrateCommand {
-    Plan {
-        /// Shell file to inspect (defaults to $HOME/.zshrc).
-        #[arg(long)]
-        zshrc: Option<PathBuf>,
-        /// Optional legacy switcher to report without modifying.
-        #[arg(long)]
-        legacy_script: Option<PathBuf>,
-        /// Optional legacy Godot symlink to report without modifying.
-        #[arg(long)]
-        legacy_link: Option<PathBuf>,
-    },
-    Apply {
-        #[arg(long)]
-        zshrc: PathBuf,
-        #[arg(long)]
-        ug_binary: PathBuf,
-        #[arg(long)]
-        yes: bool,
-    },
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum IntegrationShell {
+    Bash,
+    Fish,
+    Zsh,
+}
+
+impl From<IntegrationShell> for Shell {
+    fn from(value: IntegrationShell) -> Self {
+        match value {
+            IntegrationShell::Bash => Shell::Bash,
+            IntegrationShell::Fish => Shell::Fish,
+            IntegrationShell::Zsh => Shell::Zsh,
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -337,19 +320,8 @@ fn run(cli: Cli) -> Result<u8> {
             return Ok(status.code().unwrap_or(1).clamp(0, 255) as u8);
         }
         Commands::Uninstall { selector, force } => uninstall(flags, &paths, &selector, force)?,
-        Commands::Doctor {
-            legacy_link,
-            legacy_script,
-        } => {
-            return doctor(
-                flags,
-                &paths,
-                legacy_link.as_deref(),
-                legacy_script.as_deref(),
-            );
-        }
+        Commands::Doctor => return doctor(flags, &paths),
         Commands::Shell { command } => shell_command(&paths, command)?,
-        Commands::Migrate { command } => migrate_command(flags, command)?,
     }
     Ok(0)
 }
@@ -449,12 +421,7 @@ struct Check {
     status: String,
     detail: String,
 }
-fn doctor(
-    flags: OutputFlags,
-    paths: &Paths,
-    legacy_link: Option<&Path>,
-    legacy_script: Option<&Path>,
-) -> Result<u8> {
+fn doctor(flags: OutputFlags, paths: &Paths) -> Result<u8> {
     let mut checks = Vec::new();
     let mut failed = false;
     let state = State::load(paths);
@@ -575,34 +542,6 @@ fn doctor(
         status: if leftovers == 0 { "ok" } else { "warning" }.into(),
         detail: format!("{leftovers} recoverable staging/trash directories"),
     });
-    if let Some(legacy_script) = legacy_script {
-        checks.push(Check {
-            name: "legacy-script".into(),
-            status: if legacy_script.is_file() {
-                "present"
-            } else {
-                "absent"
-            }
-            .into(),
-            detail: legacy_script.display().to_string(),
-        });
-    }
-    if let Some(legacy_link) = legacy_link {
-        let link_detail = if legacy_link.is_symlink() {
-            fs::read_link(legacy_link)
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|e| e.to_string())
-        } else if legacy_link.exists() {
-            "exists but is not a symlink".into()
-        } else {
-            "absent".into()
-        };
-        checks.push(Check {
-            name: "legacy-link".into(),
-            status: "observed".into(),
-            detail: link_detail,
-        });
-    }
     if flags.json {
         print_json(&checks)?;
     } else if !flags.quiet {
@@ -615,82 +554,32 @@ fn doctor(
 
 fn shell_command(paths: &Paths, command: ShellCommand) -> Result<()> {
     match command {
-        ShellCommand::Init { shell: Shell::Zsh } => {
+        ShellCommand::Init { shell } => {
             let executable = env::current_exe().context("locate ug executable")?;
             let binary_dir = executable.parent().context("ug executable has no parent")?;
-            println!(
-                "export PATH={}:{}:$PATH",
-                migration::shell_single_quote(&paths.shims().to_string_lossy()),
-                migration::shell_single_quote(&binary_dir.to_string_lossy())
-            );
-            println!("autoload -Uz compinit && compinit");
+            match shell {
+                IntegrationShell::Bash | IntegrationShell::Zsh => {
+                    println!(
+                        "export PATH={}:{}:$PATH",
+                        shell_single_quote(&paths.shims().to_string_lossy()),
+                        shell_single_quote(&binary_dir.to_string_lossy())
+                    );
+                    if matches!(shell, IntegrationShell::Zsh) {
+                        println!("autoload -Uz compinit && compinit");
+                    }
+                }
+                IntegrationShell::Fish => println!(
+                    "fish_add_path --prepend --move {} {}",
+                    shell_single_quote(&paths.shims().to_string_lossy()),
+                    shell_single_quote(&binary_dir.to_string_lossy())
+                ),
+            }
             let mut command = Cli::command();
-            generate(Shell::Zsh, &mut command, "ug", &mut io::stdout());
-        }
-        ShellCommand::Init { shell } => {
-            bail!("shell init for {shell:?} is not implemented yet; completions are available")
+            generate(Shell::from(shell), &mut command, "ug", &mut io::stdout());
         }
         ShellCommand::Completions { shell } => {
             let mut command = Cli::command();
             generate(shell, &mut command, "ug", &mut io::stdout());
-        }
-    }
-    Ok(())
-}
-
-fn migrate_command(flags: OutputFlags, command: MigrateCommand) -> Result<()> {
-    match command {
-        MigrateCommand::Plan {
-            zshrc,
-            legacy_script,
-            legacy_link,
-        } => {
-            let zshrc = match zshrc {
-                Some(path) => path,
-                None => default_zshrc()?,
-            };
-            let plan = migration::plan(&zshrc, legacy_script.as_deref(), legacy_link.as_deref())?;
-            if flags.json {
-                print_json(&plan)?;
-            } else {
-                println!("zshrc: {}", plan.zshrc.display());
-                println!("ug alias lines: {:?}", plan.ug_alias_lines);
-                if let Some(path) = &plan.legacy_script {
-                    println!(
-                        "legacy script: {} ({})",
-                        path.display(),
-                        if plan.legacy_script_exists == Some(true) {
-                            "present"
-                        } else {
-                            "missing"
-                        }
-                    );
-                }
-                if let Some(path) = &plan.legacy_link {
-                    println!(
-                        "legacy link: {} -> {}",
-                        path.display(),
-                        plan.legacy_link_target
-                            .as_ref()
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|| "not a symlink".into())
-                    );
-                }
-                println!("proposed: {}", plan.action);
-                println!("No files changed.");
-            }
-        }
-        MigrateCommand::Apply {
-            zshrc,
-            ug_binary,
-            yes,
-        } => {
-            let backup = migration::apply(&zshrc, &ug_binary, yes)?;
-            if !flags.quiet {
-                println!("updated {} atomically", zshrc.display());
-                println!("backup: {}", backup.display());
-                println!("legacy script and symlink were not changed");
-            }
         }
     }
     Ok(())
@@ -701,9 +590,8 @@ fn lock(paths: &Paths) -> Result<StateLock> {
     StateLock::acquire(&paths.lock())
 }
 
-fn default_zshrc() -> Result<PathBuf> {
-    let home = env::var_os("HOME").context("HOME is not set; pass --zshrc explicitly")?;
-    Ok(PathBuf::from(home).join(".zshrc"))
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 fn host_platform() -> String {
     if cfg!(target_os = "macos") {

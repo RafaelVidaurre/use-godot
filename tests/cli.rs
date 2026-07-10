@@ -171,71 +171,27 @@ fn doctor_reports_interrupted_staging_without_touching_it() {
         .arg("doctor")
         .assert()
         .success()
-        .stdout(predicate::str::contains("1 recoverable staging/trash"))
-        .stdout(predicate::str::contains("legacy").not());
+        .stdout(predicate::str::contains("1 recoverable staging/trash"));
     assert!(staging.exists());
 }
 
 #[test]
-fn migration_is_preview_first_and_preserves_legacy_files() {
-    let temp = TempDir::new().unwrap();
-    let root = temp.path().join("root");
-    let zshrc = temp.path().join(".zshrc");
-    let legacy = temp.path().join("switch.sh");
-    let live = temp.path().join("godot");
-    let ug_bin = temp.path().join("ug");
-    fs::write(
-        &zshrc,
-        "alias ug=~/scripts/switch.sh\nalias ug4='legacy 4'\n",
-    )
-    .unwrap();
-    fs::write(&legacy, "legacy").unwrap();
-    fs::write(&ug_bin, "ug").unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&legacy, &live).unwrap();
-    ug(&root)
-        .env("HOME", temp.path())
-        .args(["migrate", "plan"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(zshrc.to_string_lossy().as_ref()));
-    ug(&root)
-        .args(["migrate", "plan", "--zshrc"])
-        .arg(&zshrc)
-        .args(["--legacy-script"])
-        .arg(&legacy)
-        .args(["--legacy-link"])
-        .arg(&live)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("No files changed"));
-    assert_eq!(
-        fs::read_to_string(&zshrc).unwrap(),
-        "alias ug=~/scripts/switch.sh\nalias ug4='legacy 4'\n"
-    );
-    ug(&root)
-        .args(["migrate", "apply", "--zshrc"])
-        .arg(&zshrc)
-        .args(["--ug-binary"])
-        .arg(&ug_bin)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("dry-run by default"));
-    ug(&root)
-        .args(["migrate", "apply", "--zshrc"])
-        .arg(&zshrc)
-        .args(["--ug-binary"])
-        .arg(&ug_bin)
-        .arg("--yes")
-        .assert()
-        .success();
-    assert!(
-        fs::read_to_string(&zshrc)
-            .unwrap()
-            .contains("alias ug4='legacy 4'")
-    );
-    assert_eq!(fs::read_to_string(&legacy).unwrap(), "legacy");
-    assert_eq!(fs::read_link(&live).unwrap(), legacy);
+fn shell_integration_is_explicit_for_zsh_bash_and_fish() {
+    let root = TempDir::new().unwrap();
+    for (shell, marker) in [
+        ("zsh", "compdef"),
+        ("bash", "complete"),
+        ("fish", "fish_add_path"),
+    ] {
+        ug(root.path())
+            .args(["shell", "init", shell])
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(
+                root.path().join("shims").to_string_lossy().as_ref(),
+            ))
+            .stdout(predicate::str::contains(marker));
+    }
 }
 
 fn godot_zip() -> Vec<u8> {

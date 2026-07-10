@@ -1,6 +1,5 @@
 pub mod atomic;
 pub mod install;
-pub mod migration;
 pub mod model;
 pub mod paths;
 pub mod remote;

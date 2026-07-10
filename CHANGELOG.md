@@ -5,8 +5,7 @@
 - Initial production-oriented CLI with semantic/channel/variant resolution.
 - Verified official standard and .NET downloads plus local custom imports.
 - Managed aliases, default/active selection, shims, execution, and uninstall.
-- Remote/installed listing, structured output, diagnostics, zsh integration,
-  completions, and preview-first migration.
+- Remote/installed listing, structured output, diagnostics, zsh/bash/fish
+  integration, and completions.
 - Isolated automated coverage for resolution, integrity, atomic staging,
-  variants, aliases, interrupted operations, and migration safety.
-
+  variants, aliases, interrupted operations, and shell integration.

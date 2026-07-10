@@ -10,7 +10,7 @@ cargo build --release
 ```
 
 Unit tests cover release tags, variant identity, semantic ordering, channel
-resolution, alias cycles, ambiguity, import parsing, and migration confirmation.
+resolution, alias cycles, ambiguity, and import parsing.
 
 Integration tests execute the compiled CLI against temporary roots and cover:
 
@@ -20,8 +20,7 @@ Integration tests execute the compiled CLI against temporary roots and cover:
 - a mocked official release API and ZIP download with a valid SHA-256 digest;
 - checksum rejection with no canonical install or partial download left behind;
 - interrupted staging visibility in `doctor`;
-- dry-run/confirmed migration while preserving legacy files and symlinks.
+- generated zsh, bash, and fish integration from isolated roots.
 
 The hidden `UG_RELEASE_API`/`--api-base` injection exists for deterministic
 testing. Production defaults to the official `godotengine/godot-builds` API.
-
