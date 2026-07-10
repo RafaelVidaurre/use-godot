@@ -1,0 +1,49 @@
+name: Audit Homebrew formula
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+
+jobs:
+  audit:
+    runs-on: macos-15
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@v6
+        with:
+          repository: RafaelVidaurre/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Normalize generated formula
+        shell: bash
+        run: |
+          ruby -0pi -e 'gsub(/^  version "[^"]+"\n/, "")' Formula/ug.rb
+          ruby -0pi -e 'sub(/\nend\n\z/, "\n\n  test do\n    assert_match \"ug \#{version}\", shell_output(\"\#{bin}/ug --version\")\n  end\nend\n") unless $_.include?("  test do\n")' Formula/ug.rb
+
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Formula/ug.rb
+            git commit -m "chore: audit ug Homebrew formula"
+          fi
+
+      - name: Audit formula
+        shell: bash
+        run: |
+          brew tap --custom-remote RafaelVidaurre/tap "$GITHUB_WORKSPACE"
+          formula="$(brew --repository RafaelVidaurre/tap)/Formula/ug.rb"
+          brew style "$formula"
+          brew audit --strict --online RafaelVidaurre/tap/ug
+          brew install RafaelVidaurre/tap/ug
+          brew test RafaelVidaurre/tap/ug
+
+      - name: Publish normalized formula
+        shell: bash
+        run: |
+          git push

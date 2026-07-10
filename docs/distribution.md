@@ -21,5 +21,10 @@ brew install RafaelVidaurre/tap/ug
 brew upgrade RafaelVidaurre/tap/ug
 ```
 
+The generated shell installer modifies `PATH` unless told otherwise. Published
+documentation invokes it with `USE_GODOT_NO_MODIFY_PATH=1` so installation is
+non-invasive and shell-independent. The resulting binary is
+`$HOME/.cargo/bin/ug` unless the installer is given another prefix.
+
 The tap credential is stored as the `HOMEBREW_TAP_TOKEN` repository secret and
 must have write access to the tap repository.

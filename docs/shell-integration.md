@@ -12,13 +12,13 @@ After installing the binary, choose the command matching the current shell:
 
 ```sh
 # zsh
-eval "$("$HOME/.local/bin/ug" shell init zsh)"
+eval "$(ug shell init zsh)"
 
 # bash
-eval "$("$HOME/.local/bin/ug" shell init bash)"
+eval "$(ug shell init bash)"
 
 # fish
-"$HOME/.local/bin/ug" shell init fish | source
+ug shell init fish | source
 ```
 
 Initialization prepends the managed shim directory and the directory containing

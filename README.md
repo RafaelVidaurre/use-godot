@@ -30,17 +30,20 @@ paths.
 brew install RafaelVidaurre/tap/ug
 ```
 
-The release installer is available when Homebrew is not desired:
+Homebrew installs `ug` directly on `PATH`; no shell setup is required. If
+Homebrew is not available, the release installer can install to Cargo's binary
+directory without editing any shell startup file:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/RafaelVidaurre/use-godot/releases/latest/download/use-godot-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/RafaelVidaurre/use-godot/releases/latest/download/use-godot-installer.sh | USE_GODOT_NO_MODIFY_PATH=1 sh
+"$HOME/.cargo/bin/ug" --version
 ```
 
 To build the current checkout instead:
 
 ```sh
 ./scripts/install.sh
-ug --version
+"$HOME/.local/bin/ug" --version
 ```
 
 By default, managed data lives in `~/.local/share/use-godot`. Override it with
