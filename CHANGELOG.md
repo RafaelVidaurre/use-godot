@@ -11,3 +11,5 @@
   integration, completions, and interactive install progress.
 - Isolated automated coverage for resolution, integrity, atomic staging,
   variants, aliases, interrupted operations, and shell integration.
+- Tagged binary releases, a verified release installer, and Homebrew tap
+  distribution.

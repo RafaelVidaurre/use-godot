@@ -27,6 +27,18 @@ paths.
 ## Install
 
 ```sh
+brew install RafaelVidaurre/tap/ug
+```
+
+The release installer is available when Homebrew is not desired:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/RafaelVidaurre/use-godot/releases/latest/download/use-godot-installer.sh | sh
+```
+
+To build the current checkout instead:
+
+```sh
 ./scripts/install.sh
 ug --version
 ```
@@ -176,4 +188,5 @@ managed state, and `exec` passes through the child exit code.
   never edits startup files.
 
 See [architecture](docs/architecture.md), [shell integration](docs/shell-integration.md),
-and [testing](docs/testing.md) for design rationale and operational details.
+[testing](docs/testing.md), and [distribution](docs/distribution.md) for design
+rationale and operational details.
