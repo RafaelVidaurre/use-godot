@@ -1,7 +1,10 @@
 # Shell integration
 
-`ug` does not select a shell, inspect startup files, or persist shell changes.
-It emits initialization code for the shell explicitly named by the user.
+Shell integration is optional. It is not required to run `ug`; it exposes the
+managed `godot` shim and command completions in the current shell.
+
+`ug` cannot modify the environment of its parent shell directly, so it emits
+shell code for explicit evaluation. It does not inspect or edit startup files.
 
 ## Current session
 

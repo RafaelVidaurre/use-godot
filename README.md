@@ -24,38 +24,19 @@ All integration tests use temporary `--root` directories and mock servers. They
 do not read or mutate applications, shell startup files, or system executable
 paths.
 
-## Safe installation
-
-The installer copies only the compiled `ug` binary. It does not edit shell
-files or system paths:
+## Install
 
 ```sh
 ./scripts/install.sh
-```
-
-Initialize only the current shell with the matching command:
-
-```sh
-# zsh
-eval "$("$HOME/.local/bin/ug" shell init zsh)"
-
-# bash
-eval "$("$HOME/.local/bin/ug" shell init bash)"
-
-# fish
-"$HOME/.local/bin/ug" shell init fish | source
-```
-
-Confirm the binary and shim locations:
-
-```sh
 ug --version
-ug doctor
 ```
 
 By default, managed data lives in `~/.local/share/use-godot`. Override it with
 `--root DIR` or `UG_ROOT`; this is also how tests isolate every filesystem
 operation.
+
+Optional shell integration exposes the managed `godot` shim and completions.
+It is not required to run `ug`; see [shell integration](docs/shell-integration.md).
 
 ## Quick start
 
