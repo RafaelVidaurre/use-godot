@@ -1,0 +1,32 @@
+[package]
+name = "use-godot"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A safe, scriptable Godot version manager"
+license = "MIT"
+
+[[bin]]
+name = "ug"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+clap_complete = "4.5"
+fs2 = "0.4"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+semver = { version = "1.0", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tempfile = "3.20"
+thiserror = "2.0"
+zip = { version = "4.3", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+tiny_http = "0.12"
+
