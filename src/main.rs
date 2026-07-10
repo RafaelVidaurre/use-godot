@@ -14,7 +14,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use use_godot::{
     Paths, State, Variant,
-    atomic::{self, StateLock},
+    atomic::StateLock,
     install::{self, InstallOptions, InstallReporter},
     project,
     remote::ReleaseCatalog,
@@ -25,10 +25,13 @@ use use_godot::{
 #[derive(Parser, Debug)]
 #[command(name = "ug", version, about = "Use Godot versions safely", long_about = None)]
 struct Cli {
+    /// Override the managed data directory.
     #[arg(long, global = true, env = "UG_ROOT", value_name = "DIR")]
     root: Option<PathBuf>,
+    /// Emit machine-readable JSON where supported.
     #[arg(long, global = true)]
     json: bool,
+    /// Suppress routine human-readable output and progress.
     #[arg(short, long, global = true)]
     quiet: bool,
     #[command(subcommand)]
@@ -51,8 +54,8 @@ enum Commands {
         /// Import a local executable or application bundle instead of downloading.
         #[arg(long, value_name = "PATH")]
         from: Option<PathBuf>,
-        /// Required SHA-256 for local standard or mono imports.
-        #[arg(long, value_name = "SHA256")]
+        /// Required SHA-256 for single-file standard or mono imports.
+        #[arg(long, value_name = "SHA256", requires = "from")]
         checksum: Option<String>,
         /// Override the detected target platform.
         #[arg(long, value_name = "PLATFORM")]
@@ -61,18 +64,21 @@ enum Commands {
         #[arg(long, value_name = "ARCH")]
         arch: Option<String>,
         /// Refresh cached official release metadata.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "from")]
         refresh: bool,
         #[arg(long, hide = true, env = "UG_RELEASE_API")]
         api_base: Option<String>,
     },
     /// List installed versions, or official releases with --remote.
     List {
+        /// List official releases instead of installed builds.
         #[arg(long)]
         remote: bool,
-        #[arg(long)]
+        /// Include alpha, beta, RC, and development releases.
+        #[arg(long, requires = "remote")]
         prerelease: bool,
-        #[arg(long)]
+        /// Refresh cached release metadata.
+        #[arg(long, requires = "remote")]
         refresh: bool,
         #[arg(long, hide = true, env = "UG_RELEASE_API")]
         api_base: Option<String>,
@@ -85,7 +91,7 @@ enum Commands {
     /// Get, set, or clear the default selection.
     Default {
         selector: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "selector")]
         unset: bool,
     },
     /// Manage named selectors.
@@ -276,9 +282,7 @@ fn run(cli: Cli) -> Result<u8> {
             let mut state = State::load(&paths)?;
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
-            atomic::replace_symlink(&item.binary, &paths.shim())?;
-            state.active = Some(item.identity.canonical());
-            state.save(&paths)?;
+            use_godot::state::activate(&paths, &mut state, item, false)?;
             output(
                 flags,
                 &item,
@@ -298,8 +302,7 @@ fn run(cli: Cli) -> Result<u8> {
             } else if let Some(selector) = selector {
                 let items = load_installations(&paths)?;
                 let item = resolve_installed(&selector, &state, &items)?;
-                state.default = Some(item.identity.canonical());
-                state.save(&paths)?;
+                use_godot::state::activate(&paths, &mut state, item, true)?;
                 output(
                     flags,
                     &item,
@@ -493,21 +496,7 @@ fn uninstall(flags: OutputFlags, paths: &Paths, selector: &str, force: bool) -> 
             item.identity.display_short()
         );
     }
-    let directory = paths.install_dir(&canonical);
-    let trash = paths
-        .versions()
-        .join(format!(".trash-{canonical}-{}", std::process::id()));
-    fs::rename(&directory, &trash).with_context(|| format!("stage uninstall of {canonical}"))?;
-    if state.active.as_deref() == Some(&canonical) {
-        state.active = None;
-        atomic::remove_symlink(&paths.shim())?;
-    }
-    if state.default.as_deref() == Some(&canonical) {
-        state.default = None;
-    }
-    state.aliases.retain(|_, value| value != &canonical);
-    state.save(paths)?;
-    fs::remove_dir_all(&trash)?;
+    use_godot::state::uninstall(paths, &mut state, &canonical)?;
     if !flags.quiet {
         println!("uninstalled {}", item.identity.display_short());
     }
@@ -641,6 +630,17 @@ fn doctor(flags: OutputFlags, paths: &Paths) -> Result<u8> {
         status: if leftovers == 0 { "ok" } else { "warning" }.into(),
         detail: format!("{leftovers} recoverable staging/trash directories"),
     });
+    if paths.pending().exists() {
+        failed = true;
+        checks.push(Check {
+            name: "pending-operation".into(),
+            status: "error".into(),
+            detail: format!(
+                "{} requires recovery by the next mutating command",
+                paths.pending().display()
+            ),
+        });
+    }
     if flags.json {
         print_json(&checks)?;
     } else if !flags.quiet {
@@ -686,7 +686,9 @@ fn shell_command(paths: &Paths, command: ShellCommand) -> Result<()> {
 
 fn lock(paths: &Paths) -> Result<StateLock> {
     paths.ensure()?;
-    StateLock::acquire(&paths.lock())
+    let lock = StateLock::acquire(&paths.lock())?;
+    use_godot::state::recover_pending(paths)?;
+    Ok(lock)
 }
 
 fn selector_or_project(explicit: Option<String>) -> Result<String> {

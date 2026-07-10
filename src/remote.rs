@@ -53,15 +53,19 @@ impl ReleaseCatalog {
         let cache = paths.cache().join("releases.json");
         let client = Client::builder()
             .user_agent(format!("use-godot/{}", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(30 * 60))
             .build()?;
         if !refresh && api_base == DEFAULT_API && cache_is_fresh(&cache)? {
-            let releases =
-                serde_json::from_slice(&fs::read(&cache)?).context("parse cached releases")?;
-            return Ok(Self {
-                releases,
-                client,
-                api_base,
-            });
+            if let Some(releases) = read_cached(&cache) {
+                return Ok(Self {
+                    releases,
+                    client,
+                    api_base,
+                });
+            }
+            fs::remove_file(&cache)
+                .with_context(|| format!("remove corrupt cache {}", cache.display()))?;
         }
 
         let mut releases = Vec::new();
@@ -283,6 +287,13 @@ fn cache_is_fresh(path: &std::path::Path) -> Result<bool> {
         < CACHE_MAX_AGE)
 }
 
+fn read_cached(path: &std::path::Path) -> Option<Vec<Release>> {
+    fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(|releases: &Vec<Release>| !releases.is_empty())
+}
+
 fn validate_hex(value: &str, length: usize) -> Result<()> {
     if value.len() != length || !value.bytes().all(|c| c.is_ascii_hexdigit()) {
         bail!("invalid authoritative digest");
@@ -337,5 +348,15 @@ mod tests {
                 .asset_for(&four, &Variant::Mono, "macos", "arm64")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn corrupt_or_empty_cache_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("releases.json");
+        fs::write(&cache, "not json").unwrap();
+        assert!(read_cached(&cache).is_none());
+        fs::write(&cache, "[]").unwrap();
+        assert!(read_cached(&cache).is_none());
     }
 }

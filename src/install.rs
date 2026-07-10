@@ -70,9 +70,10 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
     let asset = catalog.asset_for(release, &options.variant, options.platform, options.arch)?;
     options.reporter.phase("Reading integrity metadata");
     let digest = catalog.authoritative_digest(release, asset)?;
-    let partial = paths
-        .downloads()
-        .join(format!("{}.partial-{}", asset.name, std::process::id()));
+    let mut partial = Builder::new()
+        .prefix(".download-")
+        .suffix(".partial")
+        .tempfile_in(paths.downloads())?;
     options.reporter.download_started(&asset.name, asset.size);
     let mut response = catalog
         .client()
@@ -80,13 +81,15 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
         .send()
         .with_context(|| format!("download {}", asset.browser_download_url))?
         .error_for_status()?;
-    let mut output = File::create(&partial)?;
-    let (actual_sha256, verified, downloaded) =
-        copy_and_hash(&mut response, &mut output, &digest, options.reporter)?;
-    output.sync_all()?;
+    let (actual_sha256, verified, downloaded) = copy_and_hash(
+        &mut response,
+        partial.as_file_mut(),
+        &digest,
+        options.reporter,
+    )?;
+    partial.as_file().sync_all()?;
     options.reporter.phase("Verifying download");
     if !verified || (asset.size > 0 && downloaded != asset.size) {
-        let _ = fs::remove_file(&partial);
         bail!(
             "integrity check failed for {} (expected {} bytes, received {downloaded})",
             asset.name,
@@ -98,8 +101,7 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
         .prefix(".staging-")
         .tempdir_in(paths.versions())?;
     options.reporter.phase("Extracting archive");
-    extract_zip(&partial, temp.path())?;
-    let _ = fs::remove_file(&partial);
+    extract_zip(partial.path(), temp.path())?;
     let binary = locate_binary(temp.path(), &options.variant, options.platform)?;
     ensure_executable(&binary)?;
     let installation = Installation {
@@ -124,13 +126,20 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
 
 fn import(paths: &Paths, source: &Path, options: InstallOptions<'_>) -> Result<Installation> {
     options.reporter.phase("Validating local build");
-    if options.variant.is_official_download() && options.checksum.is_none() {
-        bail!(
-            "local imports for standard/mono require --checksum SHA256; custom, double, and GodotJS imports record their provenance without claiming official integrity"
-        );
-    }
     if !source.exists() {
         bail!("import source does not exist: {}", source.display());
+    }
+    if options.variant.is_official_download() {
+        if !source.is_file() {
+            bail!(
+                "local standard/mono imports must be a single executable file; install official application bundles by version instead"
+            );
+        }
+        if options.checksum.is_none() {
+            bail!(
+                "local standard/mono imports require --checksum SHA256; custom, double, and GodotJS imports record provenance without claiming official integrity"
+            );
+        }
     }
     let (version, channel) = parse_import_version(options.selector)?;
     let identity = Identity::new(
@@ -331,11 +340,22 @@ fn collect_files(path: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 fn copy_recursively(source: &Path, destination: &Path) -> Result<()> {
+    if fs::symlink_metadata(source)?.file_type().is_symlink() {
+        bail!(
+            "refusing to import a symlink as the root source: {}",
+            source.display()
+        );
+    }
     let source_root = source.canonicalize()?;
-    copy_recursively_inner(&source_root, source, destination)
+    copy_recursively_inner(&source_root, destination, source, destination)
 }
 
-fn copy_recursively_inner(source_root: &Path, source: &Path, destination: &Path) -> Result<()> {
+fn copy_recursively_inner(
+    source_root: &Path,
+    destination_root: &Path,
+    source: &Path,
+    destination: &Path,
+) -> Result<()> {
     let metadata = fs::symlink_metadata(source)?;
     if metadata.file_type().is_symlink() {
         let target = fs::read_link(source)?;
@@ -361,7 +381,16 @@ fn copy_recursively_inner(source_root: &Path, source: &Path, destination: &Path)
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
             }
-            symlink(target, destination)?;
+            let managed_target = if target.is_absolute() {
+                let relative = resolved.strip_prefix(source_root)?;
+                relative_path(
+                    destination.parent().context("symlink has no parent")?,
+                    &destination_root.join(relative),
+                )?
+            } else {
+                target
+            };
+            symlink(managed_target, destination)?;
             return Ok(());
         }
         #[cfg(not(unix))]
@@ -381,11 +410,33 @@ fn copy_recursively_inner(source_root: &Path, source: &Path, destination: &Path)
         let entry = entry?;
         copy_recursively_inner(
             source_root,
+            destination_root,
             &entry.path(),
             &destination.join(entry.file_name()),
         )?;
     }
     Ok(())
+}
+
+fn relative_path(from: &Path, to: &Path) -> Result<PathBuf> {
+    let from: Vec<_> = from.components().collect();
+    let to: Vec<_> = to.components().collect();
+    let common = from
+        .iter()
+        .zip(&to)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if common == 0 {
+        bail!("cannot create managed relative symlink across filesystem roots");
+    }
+    let mut relative = PathBuf::new();
+    for _ in common..from.len() {
+        relative.push("..");
+    }
+    for component in &to[common..] {
+        relative.push(component.as_os_str());
+    }
+    Ok(relative)
 }
 
 #[cfg(unix)]

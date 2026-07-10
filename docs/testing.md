@@ -21,6 +21,10 @@ Integration tests execute the compiled CLI against temporary roots and cover:
 - all non-official identity families (`double`, `godotjs`, `custom:name`);
 - a mocked official release API and ZIP download with a valid SHA-256 digest;
 - checksum rejection with no canonical install or partial download left behind;
+- corrupt archives, path traversal, SHA-512 checksum fallback, and temporary
+  download cleanup;
+- relative roots, manifest containment, managed symlinks, and activation/
+  uninstall journal recovery;
 - interrupted staging visibility in `doctor`;
 - generated zsh, bash, and fish integration from isolated roots.
 

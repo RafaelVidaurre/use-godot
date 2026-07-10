@@ -62,17 +62,21 @@ download URL or checksum for a project outside the official editor asset set.
 
 ## Atomicity and recovery
 
-Downloads use a `.partial-PID` file. Extraction occurs in
-`versions/.staging-*`; archive entries must remain beneath that directory. The
-manifest is fsynced before the staging directory is renamed to its canonical
-name. Failed operations drop staging and partial data.
+Downloads use RAII-managed temporary files that are removed on every success or
+failure path. Extraction occurs in `versions/.staging-*`; archive entries must
+remain beneath that directory. The manifest is fsynced before the staging
+directory is renamed to its canonical name. Failed operations drop staging and
+partial data.
 
 JSON files are written to same-directory temporary files, fsynced, and renamed.
 The managed `shims/godot` symlink is prepared under a temporary name then
-renamed. A filesystem lock serializes all state mutation. Uninstall first
-renames the installation to `.trash-*`, then updates references, then removes
-the trash. A crash can therefore leave hidden staging/trash evidence, never a
-half-populated canonical installation; `doctor` reports it.
+renamed. A filesystem lock serializes all state mutation. Activation and
+uninstall write a durable intent journal before touching multiple files; the
+next mutating command completes an interrupted operation idempotently.
+Uninstall first renames the installation to `.trash-*`, then updates references,
+then removes the trash. A crash can therefore leave recoverable intent or
+hidden staging/trash evidence, never a half-populated canonical installation;
+`doctor` reports it.
 
 Automated operations remain inside the injected managed root. Shell integration
 is emitted to standard output and never assumes or edits a startup file.

@@ -1,6 +1,6 @@
 use std::{
     env,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
@@ -13,11 +13,13 @@ pub struct Paths {
 impl Paths {
     pub fn discover(explicit: Option<PathBuf>) -> Result<Self> {
         if let Some(root) = explicit.or_else(|| env::var_os("UG_ROOT").map(PathBuf::from)) {
-            return Ok(Self { root });
+            return Ok(Self {
+                root: absolute_path(root)?,
+            });
         }
         let home = env::var_os("HOME").context("HOME is not set; pass --root or set UG_ROOT")?;
         Ok(Self {
-            root: PathBuf::from(home).join(".local/share/use-godot"),
+            root: absolute_path(PathBuf::from(home).join(".local/share/use-godot"))?,
         })
     }
 
@@ -29,6 +31,9 @@ impl Paths {
     }
     pub fn lock(&self) -> PathBuf {
         self.root.join("state.lock")
+    }
+    pub fn pending(&self) -> PathBuf {
+        self.root.join("pending-operation.json")
     }
     pub fn shims(&self) -> PathBuf {
         self.root.join("shims")
@@ -65,5 +70,44 @@ impl Paths {
 
     pub fn is_inside_root(&self, path: &Path) -> bool {
         path.starts_with(&self.root)
+    }
+}
+
+fn absolute_path(path: PathBuf) -> Result<PathBuf> {
+    let path = if path.is_absolute() {
+        path
+    } else {
+        env::current_dir()
+            .context("read current directory")?
+            .join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                }
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_relative_root_becomes_absolute() {
+        let paths = Paths::discover(Some(PathBuf::from("build/../managed"))).unwrap();
+        assert!(paths.root.is_absolute());
+        assert!(paths.root.ends_with("managed"));
+        assert!(!paths.root.to_string_lossy().contains(".."));
     }
 }

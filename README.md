@@ -62,6 +62,10 @@ ug use studio
 ug exec 4.7@mono -- --editor /path/to/project.godot
 ```
 
+`ug use` changes the active build without changing the default. `ug default`
+sets the default and activates it immediately, ensuring the managed shim is
+usable.
+
 ## Install selectors
 
 `ug install SELECTOR` downloads the newest official release matching the
@@ -161,12 +165,13 @@ managed state, and `exec` passes through the child exit code.
 - ZIP paths and symlinks are constrained to the staging directory.
 - Installs extract into hidden staging directories and become visible with one
   directory rename only after validation and manifest persistence.
-- State, manifests, backups, and shim changes use same-directory atomic
-  replacement. A lock serializes mutating commands.
+- State, manifests, and shim changes use same-directory atomic replacement. A
+  lock serializes mutating commands, and a durable operation journal recovers
+  interrupted activation and uninstall transitions.
 - Uninstall refuses active/default builds without `--force`, stages removal by
   rename, and clears aliases that point to the removed identity.
-- `doctor` identifies incomplete staging/trash directories for recovery without
-  deleting evidence automatically.
+- `doctor` identifies incomplete staging/trash directories and pending
+  operations without deleting evidence automatically.
 - Shell integration is emitted to standard output for explicit evaluation; it
   never edits startup files.
 

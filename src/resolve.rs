@@ -11,7 +11,7 @@ pub enum ResolveError {
     NotFound(String),
     #[error("alias cycle while resolving '{0}'")]
     AliasCycle(String),
-    #[error("selector '{selector}' is ambiguous; specify a variant: {matches}")]
+    #[error("selector '{selector}' is ambiguous; use a canonical identity: {matches}")]
     Ambiguous { selector: String, matches: String },
     #[error("invalid selector '{0}'")]
     Invalid(String),
@@ -70,20 +70,20 @@ pub fn resolve_installed<'a>(
     let Some(first) = candidates.first().copied() else {
         return Err(ResolveError::NotFound(input.into()));
     };
-    if selector.variant.is_none() {
-        let top_version = &first.identity.version;
-        let top_channel = &first.identity.channel;
-        let variants: Vec<_> = candidates
-            .iter()
-            .filter(|i| &i.identity.version == top_version && &i.identity.channel == top_channel)
-            .map(|i| i.identity.variant.to_string())
-            .collect();
-        if variants.len() > 1 {
-            return Err(ResolveError::Ambiguous {
-                selector: input.into(),
-                matches: variants.join(", "),
-            });
-        }
+    let top_version = &first.identity.version;
+    let top_channel = &first.identity.channel;
+    let top_matches: Vec<_> = candidates
+        .iter()
+        .filter(|item| {
+            &item.identity.version == top_version && &item.identity.channel == top_channel
+        })
+        .map(|item| item.identity.canonical())
+        .collect();
+    if top_matches.len() > 1 {
+        return Err(ResolveError::Ambiguous {
+            selector: input.into(),
+            matches: top_matches.join(", "),
+        });
     }
     Ok(first)
 }
@@ -274,5 +274,26 @@ mod tests {
             expand_alias("a", &state),
             Err(ResolveError::AliasCycle(_))
         ));
+    }
+
+    #[test]
+    fn target_ambiguity_requires_canonical_identity() {
+        let first = install(Version::new(4, 7, 0), Variant::Standard);
+        let mut second = first.clone();
+        second.identity.platform = "linux".into();
+        second.identity.arch = "arm64".into();
+        let items = vec![first, second];
+        assert!(matches!(
+            resolve_installed("4.7@standard", &State::default(), &items),
+            Err(ResolveError::Ambiguous { .. })
+        ));
+        let canonical = items[0].identity.canonical();
+        assert_eq!(
+            resolve_installed(&canonical, &State::default(), &items)
+                .unwrap()
+                .identity
+                .canonical(),
+            canonical
+        );
     }
 }
