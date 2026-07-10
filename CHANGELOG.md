@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 - 2026-07-10
+
+- Make the documented release-installer fallback shell-independent and
+  non-invasive by default.
+- Normalize, audit, install, and test every published Homebrew formula.
+- Use the current GitHub checkout action runtime in CI.
+
 ## 0.1.0 - 2026-07-10
 
 - Initial production-oriented CLI with semantic/channel/variant resolution.
