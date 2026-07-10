@@ -8,9 +8,7 @@ preview, and a separate confirmed write.
 ```sh
 cargo test --all-targets
 cargo build --release
-UG_ROOT="$(mktemp -d)" target/release/ug doctor \
-  --legacy-link /tmp/nonexistent-godot \
-  --legacy-script /tmp/nonexistent-switcher
+UG_ROOT="$(mktemp -d)" target/release/ug doctor
 ```
 
 ## 2. Install only the binary
@@ -36,16 +34,24 @@ ug doctor
 ```
 
 `command -v godot` should resolve inside
-`~/.local/share/use-godot/shims`, while `/usr/local/bin/godot` remains unchanged.
+`~/.local/share/use-godot/shims`. No external Godot path is modified.
 
-## 4. Preview the real machine migration
+## 4. Preview persistent shell integration
 
 ```sh
-ug migrate plan
+ug migrate plan --zshrc "$HOME/.zshrc"
 ```
 
-The plan reads `.zshrc`, the legacy script, and legacy symlink. It writes
-nothing. Review the reported alias line and targets.
+The plan reads the selected shell file and writes nothing. If migrating from a
+custom switcher, its paths can be inspected explicitly without making them
+product defaults:
+
+```sh
+ug migrate plan \
+  --zshrc "$HOME/.zshrc" \
+  --legacy-script "/path/to/previous-switcher" \
+  --legacy-link "/path/to/previous-godot-link"
+```
 
 ## 5. Apply only after explicit user approval
 
@@ -58,10 +64,8 @@ ug migrate apply \
 
 Apply creates the first available `.zshrc.ug-backup[.N]`, then atomically
 replaces the `alias ug=...` line with a marked `ug shell init zsh` block. It
-preserves `switch_godot_version`, `ug3`, `ug4`, double/JS convenience aliases,
-the script itself, `/Applications`, and `/usr/local/bin/godot`.
+leaves every other shell line and all external files unchanged.
 
 Open a new shell and run `ug doctor`. Roll back by atomically restoring the
-backup if validation fails. Removing the legacy script or system symlink is a
-separate future decision; `ug migrate apply` never performs it.
-
+backup if validation fails. Removing any previous switcher or external symlink
+is a separate decision; `ug migrate apply` never performs it.

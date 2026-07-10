@@ -1,20 +1,14 @@
 # use-godot (`ug`)
 
-`ug` is a safe, scriptable Godot version manager. It installs official builds,
-keeps build variants distinct, resolves semantic version selectors, and exposes
-the selected editor through an owned `godot` shim. It is designed to feel like
-NVM without taking ownership of system paths or existing Godot applications.
+`ug` means **use Godot**. It is a safe, scriptable Godot version manager that
+installs official builds, keeps build variants distinct, resolves semantic
+version selectors, and exposes the selected editor through an owned `godot`
+shim. It is designed to feel like NVM without taking ownership of system paths
+or existing Godot applications.
 
 The current release targets macOS Apple Silicon first. Official macOS archives
 are Universal 2, so their stored identity uses `macos-universal`; Linux and
 Windows asset naming is also modeled for later platform validation.
-
-## Status
-
-The CLI is implemented and tested, but it has **not** replaced this machine's
-legacy `ug` alias, `~/scripts/switch_godot_version.sh`, applications, or
-`/usr/local/bin/godot` symlink. Migration is preview-first and requires an
-explicit `--yes`.
 
 ## Build and test
 
@@ -26,9 +20,9 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release
 ```
 
-All integration tests use temporary `--root` directories and mock servers.
-They do not read or mutate `/Applications`, shell startup files, the legacy
-script, or `/usr/local/bin/godot`.
+All integration tests use temporary `--root` directories, shell fixtures, and
+mock servers. They do not read or mutate real applications, shell startup files,
+legacy tools, or system executable paths.
 
 ## Safe installation
 
@@ -136,9 +130,8 @@ managed state, and `exec` passes through the child exit code.
   rename, and clears aliases that point to the removed identity.
 - `doctor` identifies incomplete staging/trash directories for recovery without
   deleting evidence automatically.
-- Migration backs up `.zshrc`, replaces only the `ug` alias, and deliberately
-  preserves the legacy script, convenience aliases, applications, and symlink.
+- Migration backs up `.zshrc`, replaces only the `ug` alias, and leaves other
+  shell configuration and external paths unchanged.
 
 See [architecture](docs/architecture.md), [migration](docs/migration.md), and
 [testing](docs/testing.md) for design rationale and operational details.
-

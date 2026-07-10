@@ -93,15 +93,12 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Diagnose managed state and legacy integration.
+    /// Diagnose managed state and optionally inspect legacy paths.
     Doctor {
-        #[arg(long, default_value = "/usr/local/bin/godot")]
-        legacy_link: PathBuf,
-        #[arg(
-            long,
-            default_value = "/Users/rafaelvidaurre/scripts/switch_godot_version.sh"
-        )]
-        legacy_script: PathBuf,
+        #[arg(long)]
+        legacy_link: Option<PathBuf>,
+        #[arg(long)]
+        legacy_script: Option<PathBuf>,
     },
     /// Emit shell setup or completion scripts.
     Shell {
@@ -138,15 +135,15 @@ enum ShellCommand {
 #[derive(Subcommand, Debug)]
 enum MigrateCommand {
     Plan {
-        #[arg(long, default_value = "/Users/rafaelvidaurre/.zshrc")]
-        zshrc: PathBuf,
-        #[arg(
-            long,
-            default_value = "/Users/rafaelvidaurre/scripts/switch_godot_version.sh"
-        )]
-        legacy_script: PathBuf,
-        #[arg(long, default_value = "/usr/local/bin/godot")]
-        legacy_link: PathBuf,
+        /// Shell file to inspect (defaults to $HOME/.zshrc).
+        #[arg(long)]
+        zshrc: Option<PathBuf>,
+        /// Optional legacy switcher to report without modifying.
+        #[arg(long)]
+        legacy_script: Option<PathBuf>,
+        /// Optional legacy Godot symlink to report without modifying.
+        #[arg(long)]
+        legacy_link: Option<PathBuf>,
     },
     Apply {
         #[arg(long)]
@@ -343,7 +340,14 @@ fn run(cli: Cli) -> Result<u8> {
         Commands::Doctor {
             legacy_link,
             legacy_script,
-        } => return doctor(flags, &paths, &legacy_link, &legacy_script),
+        } => {
+            return doctor(
+                flags,
+                &paths,
+                legacy_link.as_deref(),
+                legacy_script.as_deref(),
+            );
+        }
         Commands::Shell { command } => shell_command(&paths, command)?,
         Commands::Migrate { command } => migrate_command(flags, command)?,
     }
@@ -448,8 +452,8 @@ struct Check {
 fn doctor(
     flags: OutputFlags,
     paths: &Paths,
-    legacy_link: &Path,
-    legacy_script: &Path,
+    legacy_link: Option<&Path>,
+    legacy_script: Option<&Path>,
 ) -> Result<u8> {
     let mut checks = Vec::new();
     let mut failed = false;
@@ -571,30 +575,34 @@ fn doctor(
         status: if leftovers == 0 { "ok" } else { "warning" }.into(),
         detail: format!("{leftovers} recoverable staging/trash directories"),
     });
-    checks.push(Check {
-        name: "legacy-script".into(),
-        status: if legacy_script.is_file() {
-            "preserved"
+    if let Some(legacy_script) = legacy_script {
+        checks.push(Check {
+            name: "legacy-script".into(),
+            status: if legacy_script.is_file() {
+                "present"
+            } else {
+                "absent"
+            }
+            .into(),
+            detail: legacy_script.display().to_string(),
+        });
+    }
+    if let Some(legacy_link) = legacy_link {
+        let link_detail = if legacy_link.is_symlink() {
+            fs::read_link(legacy_link)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|e| e.to_string())
+        } else if legacy_link.exists() {
+            "exists but is not a symlink".into()
         } else {
-            "absent"
-        }
-        .into(),
-        detail: legacy_script.display().to_string(),
-    });
-    let link_detail = if legacy_link.is_symlink() {
-        fs::read_link(legacy_link)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|e| e.to_string())
-    } else if legacy_link.exists() {
-        "exists but is not a symlink".into()
-    } else {
-        "absent".into()
-    };
-    checks.push(Check {
-        name: "legacy-link".into(),
-        status: "unchanged".into(),
-        detail: link_detail,
-    });
+            "absent".into()
+        };
+        checks.push(Check {
+            name: "legacy-link".into(),
+            status: "observed".into(),
+            detail: link_detail,
+        });
+    }
     if flags.json {
         print_json(&checks)?;
     } else if !flags.quiet {
@@ -637,29 +645,37 @@ fn migrate_command(flags: OutputFlags, command: MigrateCommand) -> Result<()> {
             legacy_script,
             legacy_link,
         } => {
-            let plan = migration::plan(&zshrc, &legacy_script, &legacy_link)?;
+            let zshrc = match zshrc {
+                Some(path) => path,
+                None => default_zshrc()?,
+            };
+            let plan = migration::plan(&zshrc, legacy_script.as_deref(), legacy_link.as_deref())?;
             if flags.json {
                 print_json(&plan)?;
             } else {
                 println!("zshrc: {}", plan.zshrc.display());
                 println!("ug alias lines: {:?}", plan.ug_alias_lines);
-                println!(
-                    "legacy script: {} ({})",
-                    plan.legacy_script.display(),
-                    if plan.legacy_script_exists {
-                        "preserved"
-                    } else {
-                        "missing"
-                    }
-                );
-                println!(
-                    "legacy link: {} -> {}",
-                    plan.legacy_link.display(),
-                    plan.legacy_link_target
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "not a symlink".into())
-                );
+                if let Some(path) = &plan.legacy_script {
+                    println!(
+                        "legacy script: {} ({})",
+                        path.display(),
+                        if plan.legacy_script_exists == Some(true) {
+                            "present"
+                        } else {
+                            "missing"
+                        }
+                    );
+                }
+                if let Some(path) = &plan.legacy_link {
+                    println!(
+                        "legacy link: {} -> {}",
+                        path.display(),
+                        plan.legacy_link_target
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "not a symlink".into())
+                    );
+                }
                 println!("proposed: {}", plan.action);
                 println!("No files changed.");
             }
@@ -683,6 +699,11 @@ fn migrate_command(flags: OutputFlags, command: MigrateCommand) -> Result<()> {
 fn lock(paths: &Paths) -> Result<StateLock> {
     paths.ensure()?;
     StateLock::acquire(&paths.lock())
+}
+
+fn default_zshrc() -> Result<PathBuf> {
+    let home = env::var_os("HOME").context("HOME is not set; pass --zshrc explicitly")?;
+    Ok(PathBuf::from(home).join(".zshrc"))
 }
 fn host_platform() -> String {
     if cfg!(target_os = "macos") {

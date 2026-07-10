@@ -9,15 +9,23 @@ use serde::Serialize;
 #[derive(Clone, Debug, Serialize)]
 pub struct MigrationPlan {
     pub zshrc: PathBuf,
-    pub legacy_script: PathBuf,
-    pub legacy_link: PathBuf,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_script: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_link: Option<PathBuf>,
     pub ug_alias_lines: Vec<usize>,
-    pub legacy_script_exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legacy_script_exists: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_link_target: Option<PathBuf>,
     pub action: String,
 }
 
-pub fn plan(zshrc: &Path, legacy_script: &Path, legacy_link: &Path) -> Result<MigrationPlan> {
+pub fn plan(
+    zshrc: &Path,
+    legacy_script: Option<&Path>,
+    legacy_link: Option<&Path>,
+) -> Result<MigrationPlan> {
     let contents =
         fs::read_to_string(zshrc).with_context(|| format!("read {}", zshrc.display()))?;
     let ug_alias_lines = contents
@@ -29,15 +37,18 @@ pub fn plan(zshrc: &Path, legacy_script: &Path, legacy_link: &Path) -> Result<Mi
                 .then_some(index + 1)
         })
         .collect();
-    let legacy_link_target = if legacy_link.is_symlink() {
-        Some(fs::read_link(legacy_link)?)
-    } else {
-        None
-    };
+    let legacy_link_target = legacy_link
+        .filter(|path| path.is_symlink())
+        .map(fs::read_link)
+        .transpose()?;
     Ok(MigrationPlan {
-        zshrc: zshrc.to_owned(), legacy_script: legacy_script.to_owned(), legacy_link: legacy_link.to_owned(), ug_alias_lines,
-        legacy_script_exists: legacy_script.is_file(), legacy_link_target,
-        action: "replace only the ug alias with a marked shell-init block; preserve the legacy script, convenience aliases, /Applications, and legacy symlink".into(),
+        zshrc: zshrc.to_owned(),
+        legacy_script: legacy_script.map(Path::to_owned),
+        legacy_link: legacy_link.map(Path::to_owned),
+        ug_alias_lines,
+        legacy_script_exists: legacy_script.map(Path::is_file),
+        legacy_link_target,
+        action: "replace only the ug alias with a marked shell-init block; leave all other shell configuration and external paths unchanged".into(),
     })
 }
 

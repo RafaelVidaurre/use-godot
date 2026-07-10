@@ -168,13 +168,11 @@ fn doctor_reports_interrupted_staging_without_touching_it() {
     let staging = root.path().join("versions/.staging-interrupted");
     fs::create_dir_all(&staging).unwrap();
     ug(root.path())
-        .args(["doctor", "--legacy-link"])
-        .arg(root.path().join("legacy-link"))
-        .args(["--legacy-script"])
-        .arg(root.path().join("legacy-script"))
+        .arg("doctor")
         .assert()
         .success()
-        .stdout(predicate::str::contains("1 recoverable staging/trash"));
+        .stdout(predicate::str::contains("1 recoverable staging/trash"))
+        .stdout(predicate::str::contains("legacy").not());
     assert!(staging.exists());
 }
 
@@ -195,6 +193,12 @@ fn migration_is_preview_first_and_preserves_legacy_files() {
     fs::write(&ug_bin, "ug").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(&legacy, &live).unwrap();
+    ug(&root)
+        .env("HOME", temp.path())
+        .args(["migrate", "plan"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(zshrc.to_string_lossy().as_ref()));
     ug(&root)
         .args(["migrate", "plan", "--zshrc"])
         .arg(&zshrc)

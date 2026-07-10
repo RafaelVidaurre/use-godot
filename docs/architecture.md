@@ -74,9 +74,9 @@ renames the installation to `.trash-*`, then updates references, then removes
 the trash. A crash can therefore leave hidden staging/trash evidence, never a
 half-populated canonical installation; `doctor` reports it.
 
-No automated path points at `/Applications`, `/usr/local/bin`, or shell startup
-files. Those appear only as read-only defaults in `doctor`/migration planning,
-or as explicit arguments to confirmed migration.
+Automated operations remain inside the injected managed root. Shell files and
+legacy script/link locations are accepted only as explicit migration arguments;
+they are never encoded as user- or machine-specific product defaults.
 
 ## Portability boundaries
 
@@ -85,4 +85,3 @@ the production-tested extraction target in 0.1. Windows symlink replacement and
 platform-specific executable discovery need dedicated CI before claiming
 production support. Shell integration is generated for zsh; completion
 generation already uses a shell-neutral command model.
-
