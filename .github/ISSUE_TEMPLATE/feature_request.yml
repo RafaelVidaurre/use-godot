@@ -1,0 +1,66 @@
+name: Feature request
+description: Propose an improvement to ug
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem before describing a solution. Open a discussion
+        issue first when a change would substantially alter ug's scope.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same request.
+          required: true
+        - label: This request concerns a Godot version-management workflow.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Version and channel resolution
+        - Installation and integrity
+        - Build variants
+        - Project pinning and aliases
+        - Shell integration
+        - Distribution and platforms
+        - Automation and structured output
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is difficult or impossible today, and who encounters it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the command, output, or behavior you would like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or other designs you considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, related tools, or other relevant information.
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to help implement this after the design is agreed.

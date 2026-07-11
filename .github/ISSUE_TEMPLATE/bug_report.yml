@@ -1,0 +1,101 @@
+name: Bug report
+description: Report reproducible incorrect behavior in ug
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Do not include credentials,
+        tokens, or private paths. Report security issues using SECURITY.md.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I am using the latest released version of ug.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: ug version
+      description: Paste the output of `ug --version`.
+      placeholder: ug 0.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Homebrew
+        - GitHub release installer
+        - Built from source
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: architecture
+    attributes:
+      label: Architecture
+      description: For example, Apple Silicon, x86_64, or ARM64.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and selector
+      description: Include the exact ug command and selector or build identity.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Run ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and logs
+      description: Paste relevant output from `ug doctor`, errors, or logs after removing sensitive data.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include anything else that may help reproduce or diagnose the issue.
