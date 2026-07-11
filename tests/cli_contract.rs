@@ -298,3 +298,37 @@ fn exec_propagates_the_child_exit_status() {
         .stdout(predicate::str::is_empty())
         .stderr(predicate::str::is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+fn exec_replaces_ug_and_preserves_the_process_id() {
+    let root = tempdir().unwrap();
+    let sources = tempdir().unwrap();
+    let source = support::fake_godot_reporting_pid(&sources, "Godot-report-pid");
+    ug(root.path())
+        .args(["--quiet", "install", "4.7@double", "--from"])
+        .arg(source)
+        .assert()
+        .success();
+
+    let mut command = support::ug_process(root.path());
+    command
+        .args(["exec", "4.7@double", "--", "pid"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let child = command.spawn().unwrap();
+    let ug_pid = child.id();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.status.success(),
+        "exec failed with {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        ug_pid.to_string()
+    );
+    assert!(output.stderr.is_empty());
+}

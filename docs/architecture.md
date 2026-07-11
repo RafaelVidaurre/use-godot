@@ -106,8 +106,19 @@ is emitted to standard output and never assumes or edits a startup file.
 
 ## Portability boundaries
 
-The core and release mapping include macOS, Linux, and Windows naming. macOS is
-the production-tested extraction target in 0.1. Windows symlink replacement and
-platform-specific executable discovery need dedicated CI before claiming
-production support. Shell integration is generated for zsh, bash, and fish
-from one command model; standalone completions support additional shells.
+The core and release mapping include macOS, Linux, and Windows naming, and
+native CI exercises the CLI and managed shim on all three systems. Published
+0.1 releases still target Apple Silicon macOS only; a platform is not presented
+as supported until its installer and release artifact also have native smoke
+coverage. Shell integration is generated for zsh, bash, and fish from one
+command model; standalone completions support additional shells.
+
+## One-shot execution
+
+The managed `godot` shim is always a direct filesystem link to the selected
+binary; invoking it does not run `ug`. On Unix, `ug exec` uses `exec(2)` so the
+Godot process replaces `ug` and keeps the same PID, terminal, signals, and job
+control. Windows has no equivalent process-replacement primitive, so `ug exec`
+starts Godot, waits, and returns its exit status. This Windows parent process is
+the portability cost of preserving synchronous command and exit-code behavior;
+normal `godot.exe` shim use remains a direct hard link there as well.

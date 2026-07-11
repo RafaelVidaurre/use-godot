@@ -10,6 +10,8 @@
   before publishing an installation.
 - Prevent canonical identity collisions when custom target components contain
   delimiter characters.
+- Replace the `ug` process with Godot during `ug exec` on Unix so Godot directly
+  owns the PID, terminal, signals, and job control.
 
 ## 0.1.1 - 2026-07-10
 
