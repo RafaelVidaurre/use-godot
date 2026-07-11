@@ -123,6 +123,16 @@ pub fn fake_godot_with_exit(temp: &TempDir, name: &str, code: u8) -> PathBuf {
     }
 }
 
+#[cfg(unix)]
+pub fn fake_godot_reporting_pid(temp: &TempDir, name: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = temp.path().join(name);
+    fs::write(&path, "#!/bin/sh\nprintf '%s\\n' \"$$\"\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
 pub fn godot_zip() -> Vec<u8> {
     let mut cursor = Cursor::new(Vec::new());
     {

@@ -354,11 +354,7 @@ fn run(cli: Cli) -> Result<u8> {
             let state = State::load(&paths)?;
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
-            let status = Command::new(&item.binary)
-                .args(&args)
-                .status()
-                .with_context(|| format!("execute {}", item.binary.display()))?;
-            return Ok(status.code().unwrap_or(1).clamp(0, 255) as u8);
+            return execute(&item.binary, &args);
         }
         Commands::Pin { selector } => {
             let directory = env::current_dir().context("read current directory")?;
@@ -377,6 +373,25 @@ fn run(cli: Cli) -> Result<u8> {
         Commands::Shell { command } => shell_command(&paths, command)?,
     }
     Ok(0)
+}
+
+#[cfg(unix)]
+fn execute(binary: &std::path::Path, args: &[String]) -> Result<u8> {
+    use std::os::unix::process::CommandExt;
+
+    let mut command = Command::new(binary);
+    command.args(args);
+    let error = command.exec();
+    Err(error).with_context(|| format!("execute {}", binary.display()))
+}
+
+#[cfg(not(unix))]
+fn execute(binary: &std::path::Path, args: &[String]) -> Result<u8> {
+    let status = Command::new(binary)
+        .args(args)
+        .status()
+        .with_context(|| format!("execute {}", binary.display()))?;
+    Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
 }
 
 #[derive(Clone, Copy)]
