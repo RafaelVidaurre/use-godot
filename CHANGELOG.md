@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 - 2026-07-11
 
 - Add `ug shell path` for explicit, shell-neutral access to the managed
   `godot` shim.
