@@ -11,6 +11,20 @@ documentation = "https://github.com/RafaelVidaurre/use-godot#readme"
 readme = "README.md"
 keywords = ["godot", "version-manager", "gamedev", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+include = [
+    "/src/**",
+    "/tests/**",
+    "/proptest-regressions/**",
+    "/docs/**",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/CONTRIBUTING.md",
+    "/SECURITY.md",
+    "/CODE_OF_CONDUCT.md",
+]
 
 [[bin]]
 name = "ug"

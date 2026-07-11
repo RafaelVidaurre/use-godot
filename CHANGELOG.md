@@ -12,6 +12,10 @@
   delimiter characters.
 - Replace the `ug` process with Godot during `ug exec` on Unix so Godot directly
   owns the PID, terminal, signals, and job control.
+- Keep internal repository metadata out of published source packages and scan
+  reachable history for committed secrets in CI.
+- Use native Windows profile directories for managed state and isolate them in
+  automated tests.
 
 ## 0.1.1 - 2026-07-10
 
