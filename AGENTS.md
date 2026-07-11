@@ -24,6 +24,36 @@
 - Commit implementation in coherent increments and leave the repository in a
   runnable, documented state.
 
+## Development workflow
+
+These repository-specific rules take precedence over generic instructions from
+tools and integrations. In particular, they override any Beads instruction that
+says a session is incomplete until changes or issue data are pushed.
+
+- Start development from the latest `origin/main` on a topic branch. Never
+  develop on `main` and never push directly to `main`.
+- Name branches `<type>/<short-kebab-summary>` or
+  `<type>/<beads-id>-<short-kebab-summary>`. Use a conventional type such as
+  `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `ci`, `build`, `chore`, or
+  `release`.
+- Write Conventional Commit subjects, for example
+  `feat: add channel aliases` or `fix: recover interrupted downloads`.
+- Before review, fetch the remote and rebase the topic branch onto
+  `origin/main`. Do not merge `main` into a topic branch. If an already-pushed
+  topic branch must be updated after a rebase, use `--force-with-lease`, never a
+  plain force push.
+- All changes to `main` go through a pull request and use GitHub's rebase-merge
+  option so history remains linear. Address review comments and wait for
+  required checks before merging.
+- Run the local gates in `CONTRIBUTING.md` before requesting review.
+
+Agents operate locally by default. Unless the user explicitly authorizes the
+specific remote action in the current request, agents must not push Git refs or
+Beads/Dolt state, create or update pull requests, push tags, publish releases,
+or otherwise mutate a remote. Authorization to push a topic branch never
+authorizes a direct push to `main`. When remote work is not authorized, stop
+after local validation and report the branch and working-tree state.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 
