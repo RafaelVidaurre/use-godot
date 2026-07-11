@@ -14,6 +14,14 @@ Its stable storage key resembles
 semantically, not lexically; `4.10` therefore sorts after `4.9`. Stable is the
 implicit channel. Prereleases require a channel selector.
 
+The `-` between platform and architecture is structural. Literal `%` and `-`
+characters inside either target component are percent-encoded as `%25` and
+`%2D` before the storage key is assembled. Without that escaping,
+`(platform=a, architecture=b-c)` and `(platform=a-b, architecture=c)` would
+produce the same key. Built-in identities such as `macos-universal`,
+`linux-x86_64`, and `windows-arm64` contain no escaped characters and remain
+unchanged.
+
 Aliases resolve to canonical installed identities rather than floating strings.
 This makes an alias update explicit and prevents a future remote release from
 silently changing an established environment.
@@ -68,9 +76,24 @@ remain beneath that directory. The manifest is fsynced before the staging
 directory is renamed to its canonical name. Failed operations drop staging and
 partial data.
 
+Official artifacts are also subject to fixed resource ceilings. A download may
+not exceed its authoritative nonzero asset size or 2 GiB, whichever is lower;
+an asset declared larger than 2 GiB is rejected before downloading. ZIP
+metadata is validated before any entry is extracted. An archive may contain at
+most 100,000 entries, each entry may expand to at most 2 GiB, and all entries
+may expand to at most 8 GiB. Paths are limited to 64 components. Duplicate
+output paths and entries with an uncompressed-to-compressed ratio above 1000:1
+are rejected; symlink targets are limited to 4 KiB. Extraction also verifies
+that actual bytes match the bounded sizes declared in ZIP metadata. The ratio
+is deliberately a permissive backstop for repetitive text and managed
+assemblies; the absolute expanded-size ceilings remain the primary disk bound.
+These limits are compile-time policy, not inputs controlled by release
+metadata.
+
 JSON files are written to same-directory temporary files, fsynced, and renamed.
-The managed `shims/godot` symlink is prepared under a temporary name then
-renamed. A filesystem lock serializes all state mutation. Activation and
+The managed Godot shim is prepared under a temporary name and atomically
+published: a symlink on Unix and a privilege-free hard link on Windows. A
+filesystem lock serializes all state mutation. Activation and
 uninstall write a durable intent journal before touching multiple files; the
 next mutating command completes an interrupted operation idempotently.
 Uninstall first renames the installation to `.trash-*`, then updates references,

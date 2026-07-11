@@ -156,8 +156,8 @@ impl Identity {
             self.version,
             self.channel,
             self.variant.slug(),
-            self.platform,
-            self.arch
+            encode_canonical_target_component(&self.platform),
+            encode_canonical_target_component(&self.arch),
         )
     }
 
@@ -173,6 +173,10 @@ impl Identity {
         };
         format!("{base}-{}", self.channel)
     }
+}
+
+fn encode_canonical_target_component(value: &str) -> String {
+    value.replace('%', "%25").replace('-', "%2D")
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -247,5 +251,32 @@ mod tests {
             ..a.clone()
         };
         assert_ne!(a.canonical(), b.canonical());
+    }
+
+    #[test]
+    fn canonical_target_components_are_unambiguous_and_preserve_builtin_keys() {
+        let builtin = Identity::new(
+            Version::new(4, 7, 0),
+            Channel::Stable,
+            Variant::Standard,
+            "macos",
+            "universal",
+        );
+        assert_eq!(builtin.canonical(), "4.7.0-stable@standard+macos-universal");
+
+        let left = Identity {
+            platform: "a".into(),
+            arch: "b-c".into(),
+            ..builtin.clone()
+        };
+        let right = Identity {
+            platform: "a-b".into(),
+            arch: "c".into(),
+            ..builtin
+        };
+        assert_eq!(left.canonical(), "4.7.0-stable@standard+a-b%2Dc");
+        assert_eq!(right.canonical(), "4.7.0-stable@standard+a%2Db-c");
+        assert_ne!(left.canonical(), right.canonical());
+        assert_eq!(encode_canonical_target_component("%-"), "%25%2D");
     }
 }

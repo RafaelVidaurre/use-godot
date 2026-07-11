@@ -36,6 +36,7 @@ zip = { version = "4.3", default-features = false, features = ["deflate"] }
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"
+proptest = { version = "1.11", default-features = false, features = ["std"] }
 tiny_http = "0.12"
 
 # The profile that 'dist' will build with
