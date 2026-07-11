@@ -54,6 +54,10 @@ or otherwise mutate a remote. Authorization to push a topic branch never
 authorizes a direct push to `main`. When remote work is not authorized, stop
 after local validation and report the branch and working-tree state.
 
+Beads is local-only until its public sync history has a privacy-safe bootstrap.
+Do not publish `refs/dolt/data`, issue exports, or interaction logs. The latter
+two are intentionally ignored because they can contain contributor metadata.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
 ## Beads Issue Tracker
 
