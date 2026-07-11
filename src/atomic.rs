@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use fs2::FileExt;
 use serde::Serialize;
-use tempfile::NamedTempFile;
+use tempfile::{Builder, NamedTempFile};
 
 pub struct StateLock(File);
 
@@ -59,19 +59,20 @@ pub fn write_text(path: &Path, value: &str) -> Result<()> {
 pub fn replace_symlink(target: &Path, link: &Path) -> Result<()> {
     let parent = link.parent().context("shim path has no parent")?;
     fs::create_dir_all(parent)?;
-    let temp = parent.join(format!(
-        ".{}.tmp-{}",
-        link.file_name().unwrap_or_default().to_string_lossy(),
-        std::process::id()
-    ));
-    if temp.exists() || temp.is_symlink() {
-        fs::remove_file(&temp)?;
-    }
-    create_symlink(target, &temp)?;
-    fs::rename(&temp, link).with_context(|| format!("atomically replace {}", link.display()))?;
+    let temporary = Builder::new()
+        .prefix(".shim-")
+        .tempfile_in(parent)?
+        .into_temp_path();
+    fs::remove_file(&temporary)?;
+    create_symlink(target, &temporary)?;
+    temporary
+        .persist(link)
+        .map_err(|error| error.error)
+        .with_context(|| format!("atomically replace {}", link.display()))?;
     sync_dir(parent)
 }
 
+#[cfg(unix)]
 pub fn remove_symlink(link: &Path) -> Result<()> {
     if link.is_symlink() {
         fs::remove_file(link)?;
@@ -80,6 +81,19 @@ pub fn remove_symlink(link: &Path) -> Result<()> {
         }
     } else if link.exists() {
         bail!("refusing to remove non-symlink {}", link.display());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn remove_symlink(link: &Path) -> Result<()> {
+    if link.is_file() {
+        fs::remove_file(link)?;
+        if let Some(parent) = link.parent() {
+            sync_dir(parent)?;
+        }
+    } else if link.exists() {
+        bail!("refusing to remove non-file shim {}", link.display());
     }
     Ok(())
 }
@@ -105,14 +119,24 @@ fn create_symlink(target: &Path, link: &Path) -> Result<()> {
 
 #[cfg(windows)]
 fn create_symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_file(target, link)
-        .with_context(|| format!("create symlink {}", link.display()))
+    // Managed installations and shims share a filesystem, so a hard link avoids
+    // the elevated privilege Windows requires for symbolic links.
+    fs::hard_link(target, link).with_context(|| format!("create hard link {}", link.display()))
 }
 
+#[cfg(unix)]
 fn sync_dir(path: &Path) -> Result<()> {
     File::open(path)?
         .sync_all()
         .with_context(|| format!("sync {}", path.display()))
+}
+
+#[cfg(windows)]
+fn sync_dir(_path: &Path) -> Result<()> {
+    // Windows does not expose directory handles through File::open. The file or
+    // link itself is persisted before publication, and persist uses replace
+    // semantics on this platform.
+    Ok(())
 }
 
 pub fn atomic_dir_commit(staging: PathBuf, destination: &Path) -> Result<()> {

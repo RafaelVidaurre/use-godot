@@ -5,7 +5,7 @@ use std::fs;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-use support::{fake_godot, isolated_ug, ug};
+use support::{fake_godot, isolated_ug, shim_path, ug};
 
 #[test]
 fn shell_integration_is_explicit_for_zsh_bash_and_fish() {
@@ -99,11 +99,16 @@ fn relative_root_produces_an_absolute_working_shim() {
         .args(["--root", "managed", "use", "4.7@double"])
         .assert()
         .success();
-    let shim = workspace.path().join("managed/shims/godot");
-    let target = fs::read_link(&shim).unwrap();
-    assert!(target.is_absolute());
-    std::process::Command::new(shim)
+    let managed_root = workspace.path().join("managed");
+    let shim = shim_path(&managed_root);
+    #[cfg(unix)]
+    assert!(fs::read_link(&shim).unwrap().is_absolute());
+    #[cfg(windows)]
+    assert!(shim.is_file());
+    let output = std::process::Command::new(shim)
         .arg("--version")
         .output()
         .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"fake:--version\n");
 }
