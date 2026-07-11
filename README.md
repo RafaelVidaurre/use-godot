@@ -244,8 +244,7 @@ and [Distribution](docs/distribution.md) for the test and release procedures.
 Report bugs through [GitHub Issues](https://github.com/RafaelVidaurre/use-godot/issues).
 Open an issue before starting a large change. Pull requests that change behavior
 should include tests. See [Contributing](CONTRIBUTING.md) for branch, commit,
-validation, and review requirements. Report suspected vulnerabilities according
-to the [Security policy](SECURITY.md).
+validation, and review requirements.
 
 ## License
 
