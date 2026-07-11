@@ -581,31 +581,32 @@ fn doctor(flags: OutputFlags, paths: &Paths) -> Result<u8> {
                 .iter()
                 .find(|item| item.identity.canonical() == *active)
                 .map(|item| item.binary.as_path());
-            match fs::read_link(paths.shim()) {
-                Ok(target) if target.is_file() && expected == Some(target.as_path()) => checks
-                    .push(Check {
+            if let Some(target) = expected {
+                match shim_matches_target(&paths.shim(), target) {
+                    Ok(true) => checks.push(Check {
                         name: "shim".into(),
                         status: "ok".into(),
                         detail: format!("{active} -> {}", target.display()),
                     }),
-                Ok(target) => {
-                    failed = true;
-                    checks.push(Check {
-                        name: "shim".into(),
-                        status: "error".into(),
-                        detail: format!(
-                            "target {} does not match active installation",
-                            target.display()
-                        ),
-                    });
-                }
-                Err(e) => {
-                    failed = true;
-                    checks.push(Check {
-                        name: "shim".into(),
-                        status: "error".into(),
-                        detail: e.to_string(),
-                    });
+                    Ok(false) => {
+                        failed = true;
+                        checks.push(Check {
+                            name: "shim".into(),
+                            status: "error".into(),
+                            detail: format!(
+                                "{} does not match active installation",
+                                paths.shim().display()
+                            ),
+                        });
+                    }
+                    Err(error) => {
+                        failed = true;
+                        checks.push(Check {
+                            name: "shim".into(),
+                            status: "error".into(),
+                            detail: error.to_string(),
+                        });
+                    }
                 }
             }
         } else if paths.shim().is_symlink() || paths.shim().exists() {
@@ -714,6 +715,14 @@ fn project_selector() -> Result<Option<String>> {
 fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
+
+fn shim_matches_target(
+    shim: &std::path::Path,
+    expected: &std::path::Path,
+) -> std::io::Result<bool> {
+    same_file::is_same_file(shim, expected)
+}
+
 fn host_platform() -> String {
     if cfg!(target_os = "macos") {
         "macos"

@@ -5,7 +5,7 @@ use std::fs;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-use support::{fake_godot, ug};
+use support::{assert_shim_targets, fake_godot, shim_path, ug};
 
 #[test]
 fn variants_alias_default_exec_and_uninstall_are_end_to_end() {
@@ -66,7 +66,7 @@ fn variants_alias_default_exec_and_uninstall_are_end_to_end() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("no active Godot"));
-    assert!(!root.path().join("shims/godot").exists());
+    assert!(!shim_path(root.path()).exists());
 }
 
 #[test]
@@ -101,7 +101,44 @@ fn default_activates_the_selected_build() {
         .assert()
         .success()
         .stdout("4.7.0-stable@double\n");
-    assert!(root.path().join("shims/godot").is_symlink());
+    #[cfg(unix)]
+    assert!(shim_path(root.path()).is_symlink());
+    #[cfg(windows)]
+    assert!(shim_path(root.path()).is_file());
+    ug(root.path())
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("shim").and(predicate::str::contains("ok")));
+}
+
+#[test]
+fn activating_a_second_build_atomically_replaces_the_shim() {
+    let root = TempDir::new().unwrap();
+    let sources = TempDir::new().unwrap();
+    for (version, name) in [("4.7", "Godot-first"), ("4.8", "Godot-second")] {
+        let source = fake_godot(&sources, name);
+        ug(root.path())
+            .args(["install", version, "--variant", "double", "--from"])
+            .arg(source)
+            .assert()
+            .success();
+    }
+
+    ug(root.path())
+        .args(["use", "4.7@double"])
+        .assert()
+        .success();
+    let first = which(root.path(), "4.7@double");
+    assert_shim_targets(root.path(), &first);
+
+    ug(root.path())
+        .args(["use", "4.8@double"])
+        .assert()
+        .success();
+    let second = which(root.path(), "4.8@double");
+    assert_ne!(first, second);
+    assert_shim_targets(root.path(), &second);
 }
 
 #[test]
@@ -171,4 +208,10 @@ fn installed_directory_name(root: &TempDir) -> String {
         .file_name()
         .to_string_lossy()
         .into_owned()
+}
+
+fn which(root: &std::path::Path, selector: &str) -> std::path::PathBuf {
+    let output = ug(root).args(["which", selector]).output().unwrap();
+    assert!(output.status.success());
+    std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
 }
