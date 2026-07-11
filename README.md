@@ -4,133 +4,101 @@
 [![Latest release](https://img.shields.io/github/v/release/RafaelVidaurre/use-godot)](https://github.com/RafaelVidaurre/use-godot/releases/latest)
 [![License](https://img.shields.io/github/license/RafaelVidaurre/use-godot)](LICENSE)
 
-`ug` means **use Godot**. It is a safe, scriptable Godot version manager for
-installing, selecting, and running multiple Godot builds side by side.
+`ug` (short for **use Godot**) installs and selects Godot versions. It keeps
+versions and build variants side by side, verifies official downloads, and
+supports project-local version selection through `.ugrc`.
 
-It provides an NVM-like workflow while keeping Godot versions and build
-variants explicit. `ug` does not replace system executables, modify installed
-applications, or edit shell startup files.
+Releases currently target macOS on Apple Silicon. Linux and Windows releases
+are not yet built or tested.
 
-> [!NOTE]
-> macOS on Apple Silicon is the production-supported target today. The core is
-> designed for other platforms, but they are not yet covered by release CI.
+## Install
 
-## Features
-
-- Resolve versions with selectors such as `latest`, `4`, `4.7`, or
-  `4.8-beta2`.
-- Install official standard and .NET builds with checksum verification.
-- Keep standard, .NET, double-precision, GodotJS, and custom builds as distinct
-  identities.
-- Pin projects with a `.ugrc` file, similar to `.nvmrc`.
-- Create CLI-managed aliases and choose a global default.
-- Run a version once without changing the active selection.
-- Inspect installed and remote versions with human-readable or JSON output.
-- Recover safely from interrupted activation and uninstall operations.
-- Generate optional integration and completions for multiple shells.
-
-## Installation
-
-### Homebrew
+With Homebrew:
 
 ```sh
 brew install RafaelVidaurre/tap/ug
-ug --version
 ```
 
-No shell initialization is required to use `ug`.
-
-### Release installer
-
-If Homebrew is unavailable, install the latest release without modifying shell
-startup files:
+Or with the release installer:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/RafaelVidaurre/use-godot/releases/latest/download/use-godot-installer.sh | USE_GODOT_NO_MODIFY_PATH=1 sh
-"$HOME/.cargo/bin/ug" --version
 ```
 
-### From source
+The release installer puts `ug` in `$HOME/.cargo/bin`. Add that directory to
+`PATH` if it is not already there.
 
-Rust 1.85 or newer is required.
+To build from source, install Rust 1.85 or newer, then run:
 
 ```sh
 git clone https://github.com/RafaelVidaurre/use-godot.git
 cd use-godot
 ./scripts/install.sh
-"$HOME/.local/bin/ug" --version
 ```
 
-## Quick start
+The source installer puts `ug` in `$HOME/.local/bin`. Set `UG_BIN_DIR` to choose
+a different directory.
+
+## Usage
 
 ```sh
-# Browse official releases.
+# Show available official releases.
 ug list --remote
 
-# Install the latest stable 4.7 standard build.
+# Install and select the latest stable 4.7 release.
 ug install 4.7
-
-# Select it for the managed Godot shim.
 ug use 4.7
 
-# Inspect the selection and executable path.
+# Show the active identity and executable.
 ug current
 ug which
 
-# Run Godot once without changing the selection.
-ug exec 4.7 -- --editor project.godot
+# Run another version without changing the active one.
+ug install 4.7@mono
+ug exec 4.7@mono -- --editor project.godot
 ```
 
-Interactive installs report resolution, download progress, speed, ETA,
-verification, extraction, and completion. Use `--quiet` for automation.
+`ug install` shows download progress in an interactive terminal. Pass `--quiet`
+to suppress routine output.
 
-## Version selectors
+### Selectors
 
-Commands accept partial semantic versions, release channels, build variants,
-or named aliases:
-
-| Selector | Resolves to |
+| Selector | Meaning |
 | --- | --- |
 | `latest` | Latest stable release |
 | `4` | Latest stable 4.x release |
 | `4.7` | Latest stable 4.7.x release |
-| `4.7.1` | Exact stable release |
-| `4.8-beta` | Latest beta in the 4.8 series |
-| `4.8-beta2` | Exact beta release |
+| `4.7.1` | Godot 4.7.1 |
+| `4.8-beta` | Latest 4.8 beta |
+| `4.8-beta2` | Godot 4.8 beta 2 |
 | `4.7@mono` | Latest stable 4.7.x .NET build |
 
-Stable is the default channel. Supported prerelease channels are `rc`, `beta`,
-`alpha`, and `dev`, optionally followed by a release number.
+Prerelease channels are `rc`, `beta`, `alpha`, and `dev`. Without a channel,
+selectors resolve to stable releases.
 
-The default variant is `standard`. Append one of these variants with `@`:
+The available variants are:
 
-| Variant | Source |
+| Variant | Installation source |
 | --- | --- |
-| `standard` | Verified official download |
-| `mono` | Verified official .NET download |
-| `double` | Trusted local import |
-| `godotjs` | Trusted local import |
-| `custom:NAME` | Trusted named local import |
+| `standard` | Official download |
+| `mono` | Official .NET download |
+| `double` | Local import |
+| `godotjs` | Local import |
+| `custom:NAME` | Named local import |
 
-For example, `4.7@standard` and `4.7@double` are independently installable and
-selectable identities.
+The default variant is `standard`. A variant is part of an installed build's
+identity, so `4.7@standard` and `4.7@double` can both be installed.
 
-## Project versions
+### Project versions
 
-`.ugrc` is the `.nvmrc` equivalent. Pin a selector in the current project:
+`ug pin` writes a selector to `.ugrc`:
 
 ```sh
 ug pin 4.7@mono
 ```
 
-This creates a `.ugrc` containing:
-
-```text
-4.7@mono
-```
-
-From that directory or any child directory, selector-less commands use the
-nearest `.ugrc`:
+Within that directory and its children, the following commands read the nearest
+`.ugrc` when no selector is given:
 
 ```sh
 ug install
@@ -139,32 +107,31 @@ ug which
 ug exec -- --editor project.godot
 ```
 
-An explicit selector always takes precedence over `.ugrc`.
+An explicit selector takes precedence over `.ugrc`.
 
-## Defaults and aliases
+### Defaults and aliases
 
-`use` changes the active version. `default` records a fallback and activates it
-immediately:
+`use` changes the active build. `default` records a fallback and also activates
+it:
 
 ```sh
-ug use 4.7@standard
-ug default 4.7@standard
+ug use 4.7
+ug default 4.7@mono
 ug default --unset
 ```
 
-Named aliases are managed by `ug`; they are not shell aliases:
+Named aliases are selectors managed by `ug`, not shell aliases:
 
 ```sh
-ug alias set studio 4.7@standard
-ug alias list
+ug alias set studio 4.7@mono
 ug use studio
+ug alias list
 ug alias remove studio
 ```
 
-## Importing local builds
+### Local builds
 
-Double-precision, GodotJS, and custom builds are imported from a local
-executable or application bundle:
+Import double-precision, GodotJS, and custom builds with `--from`:
 
 ```sh
 ug install 4.7@double --from "/path/to/Godot Double.app"
@@ -172,48 +139,37 @@ ug install 4.7@godotjs --from "/path/to/GodotJS.app"
 ug install 4.7@custom:studio --from "/path/to/Godot Studio.app"
 ```
 
-The source is copied into managed storage and committed atomically. Importing a
-local build as `standard` or `mono` also requires `--checksum SHA256`, so an
-arbitrary binary cannot be recorded as an official-family build without an
-integrity assertion.
+The source is copied into managed storage. A single-file local import using the
+`standard` or `mono` identity also requires `--checksum SHA256`.
 
-## Command reference
+## Commands
 
-| Command | Purpose |
+| Command | Description |
 | --- | --- |
 | `ug install [SELECTOR]` | Install an official release or import a local build |
 | `ug list` | List installed builds |
-| `ug list --remote` | List matching official releases |
+| `ug list --remote` | List official releases |
 | `ug use [SELECTOR]` | Select an installed build |
-| `ug default [SELECTOR]` | Get, set, or clear the default selection |
-| `ug alias …` | Set, remove, list, or resolve named selectors |
+| `ug default [SELECTOR]` | Get, set, or clear the default |
+| `ug alias …` | Manage named selectors |
 | `ug current` | Print the active identity |
 | `ug which [SELECTOR]` | Print an installed executable path |
-| `ug exec [SELECTOR] -- …` | Run Godot once without switching |
-| `ug pin SELECTOR` | Write `.ugrc` in the current directory |
+| `ug exec [SELECTOR] -- …` | Run Godot without changing the active build |
+| `ug pin SELECTOR` | Write `.ugrc` |
 | `ug uninstall SELECTOR` | Remove an installed build |
-| `ug doctor` | Diagnose managed state and interrupted operations |
-| `ug shell …` | Generate optional shell integration or completions |
+| `ug doctor` | Check managed state |
+| `ug shell …` | Generate shell setup or completions |
 
-Run `ug help COMMAND` for complete arguments and examples.
+Run `ug help COMMAND` for all options and examples. `--json` produces structured
+output where supported; `--quiet` suppresses routine output and progress.
 
-### Automation
-
-Commands that expose records support global `--json`. Global `--quiet`
-suppresses routine output and interactive progress.
-
-```sh
-ug --json list
-ug --quiet install 4.7
-```
-
-Errors return exit code 1. `doctor` returns 2 for unhealthy managed state, and
-`exec` passes through the child process's exit code.
+Errors return status 1. `doctor` returns 2 when managed state is unhealthy.
+`exec` returns the child process's status.
 
 ## Shell integration
 
-Shell integration is optional. It adds the managed `godot` shim and completions
-to the current session; it is not needed to invoke `ug`.
+Shell integration is optional. It adds the managed `godot` shim and command
+completions to the current session:
 
 ```sh
 # zsh
@@ -226,36 +182,28 @@ eval "$(ug shell init bash)"
 ug shell init fish | source
 ```
 
-`ug` only emits shell code. It never edits startup files or assumes a preferred
-shell. See [Shell integration](docs/shell-integration.md) for standalone
-completion generation and safety details.
+`ug shell init` prints shell code; it does not edit startup files. Standalone
+completions are available for zsh, bash, fish, PowerShell, and Elvish. See
+[Shell integration](docs/shell-integration.md).
 
-## Managed data
+## Storage and integrity
 
-Managed state is stored in `~/.local/share/use-godot` by default. Override the
-root for CI, testing, or isolated environments:
+The default data directory is `~/.local/share/use-godot`. Use `UG_ROOT` or
+`--root` for an isolated location:
 
 ```sh
 UG_ROOT=/path/to/root ug list
 ug --root /path/to/root doctor
 ```
 
-## Safety and integrity
+Official downloads must match a published SHA-256 digest or an entry in the
+release's `SHA512-SUMS.txt`. Installations are staged before being moved into
+managed storage. Archive paths and symlinks are checked for escapes, mutations
+are serialized, and interrupted activation or uninstall operations are
+recovered from a journal.
 
-- Official artifacts must match an authoritative SHA-256 digest or the
-  release's `SHA512-SUMS.txt`; missing integrity data fails closed.
-- Downloads and extraction happen in hidden staging locations before one
-  atomic installation commit.
-- Archive paths and symlinks cannot escape managed storage.
-- State writes, manifests, aliases, and shim changes use atomic replacement.
-- A process lock serializes mutations, while a durable journal recovers
-  interrupted activation and uninstall transitions.
-- Uninstall protects active and default builds unless explicitly forced.
-- Automated tests use temporary roots and mock servers; they do not touch
-  applications, startup files, or system executable paths.
-
-Read [Architecture](docs/architecture.md) for the complete design and upstream
-release-metadata decisions.
+See [Architecture](docs/architecture.md) for the state layout and release
+metadata sources.
 
 ## Development
 
@@ -267,26 +215,13 @@ cargo build --release --locked
 shellcheck scripts/*.sh
 ```
 
-The integration suite exercises real CLI flows against isolated temporary
-roots, including integrity failures, malicious archives, variant identity,
-aliases, project selectors, and interrupted-operation recovery.
+Tests use temporary managed roots and local fixtures. See [Testing](docs/testing.md)
+and [Distribution](docs/distribution.md) for the test and release procedures.
 
-See [Testing](docs/testing.md) and [Distribution](docs/distribution.md) for the
-full validation and release processes.
-
-## Contributing
-
-Bug reports, focused feature proposals, and pull requests are welcome. Before
-submitting a change:
-
-1. Keep filesystem and platform dependencies injectable.
-2. Add or update tests for behavior changes.
-3. Run the development checks above.
-4. Document user-visible behavior and non-obvious design decisions.
-
-Please use [GitHub Issues](https://github.com/RafaelVidaurre/use-godot/issues) to
-report bugs or discuss substantial changes before implementation.
+Report bugs through [GitHub Issues](https://github.com/RafaelVidaurre/use-godot/issues).
+Open an issue before starting a large change. Pull requests that change behavior
+should include tests.
 
 ## License
 
-`use-godot` is available under the [MIT License](LICENSE).
+[MIT](LICENSE)
