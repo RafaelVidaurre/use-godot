@@ -1,0 +1,6 @@
+# Conventional Commits are checked in CI. Version creation remains a manual,
+# pull-request-driven process; Cocogitto is not configured to tag or push.
+tag_prefix = "v"
+ignore_merge_commits = true
+ignore_fixup_commits = false
+

@@ -1,0 +1,69 @@
+name: Policy
+
+on:
+  pull_request:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  contents: read
+
+jobs:
+  commits:
+    name: conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out pull request history
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Lint commits since the latest release
+        uses: cocogitto/cocogitto-action@52d0023b4396897f1815648e553db2ab8d782f3a # v4.2.0, installs cog 7.0.0
+        with:
+          command: check
+          args: --from-latest-tag
+
+  version:
+    name: version policy
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - name: Test version policy checker
+        run: ./scripts/test-version-policy.sh
+      - name: Check version metadata
+        run: ./scripts/check-version-policy.sh
+      - name: Check release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: ./scripts/check-version-policy.sh --tag "$GITHUB_REF_NAME"
+
+  rust-api:
+    name: Rust API compatibility
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - name: Find latest release tag
+        id: baseline
+        shell: bash
+        run: |
+          tag=$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)
+          if [[ -z "$tag" ]]; then
+            echo "No release tag found" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Check public Rust API compatibility
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9
+        with:
+          package: use-godot
+          baseline-rev: ${{ steps.baseline.outputs.tag }}
+          # Let the tool derive Cargo's 0.x compatibility class from the
+          # baseline and current package versions. An override would lose that
+          # distinction for intentional breaking-release pull requests.

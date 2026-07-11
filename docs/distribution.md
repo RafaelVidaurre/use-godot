@@ -5,10 +5,19 @@ Tagged releases are built by `cargo-dist` using the committed configuration in
 
 ## Release process
 
-1. Update the version in `Cargo.toml` and `CHANGELOG.md`.
-2. Run the complete validation gate documented in `docs/testing.md`.
-3. Regenerate release automation with the configured `cargo-dist` version.
-4. Commit the release changes and push a matching `vMAJOR.MINOR.PATCH` tag.
+1. Choose the version using the compatibility rules in
+   [Versioning](versioning.md).
+2. Update the version in `Cargo.toml` and `Cargo.lock`, and move the relevant
+   `Unreleased` entries to a dated `CHANGELOG.md` heading.
+3. Run `./scripts/check-version-policy.sh` and the complete validation gate
+   documented in `docs/testing.md`.
+4. Regenerate release automation with the configured `cargo-dist` version.
+5. Open and merge the release pull request.
+6. Create and push an annotated `vMAJOR.MINOR.PATCH` tag on the release commit.
+
+The release workflow rejects a tag unless it exactly matches the Cargo package
+version, lockfile entry, and dated changelog heading. No release command pushes
+branches or tags on a contributor's behalf.
 
 The release workflow builds the supported native archive, source archive,
 checksums, shell installer, and Homebrew formula. It uploads them to GitHub
