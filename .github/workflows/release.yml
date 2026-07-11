@@ -42,7 +42,7 @@ on:
   pull_request:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
+      - '**[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -60,9 +60,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Validate release version and tag
-        if: ${{ !github.event.pull_request }}
-        run: ./scripts/check-version-policy.sh --tag "${{ github.ref_name }}"
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -90,12 +87,17 @@ jobs:
           name: artifacts-plan-dist-manifest
           path: plan-dist-manifest.json
 
+  custom-release-policy:
+    uses: ./.github/workflows/release-policy.yml
+    secrets: inherit
+
   # Build and packages all the platform-specific things
   build-local-artifacts:
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
     # Let the initial task tell us to not run (currently very blunt)
     needs:
       - plan
+      - custom-release-policy
     if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
