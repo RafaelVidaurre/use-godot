@@ -158,7 +158,7 @@ The source is copied into managed storage. A single-file local import using the
 | `ug pin SELECTOR` | Write `.ugrc` |
 | `ug uninstall SELECTOR` | Remove an installed build |
 | `ug doctor` | Check managed state |
-| `ug shell …` | Generate shell setup or completions |
+| `ug shell …` | Show the shim path or generate shell setup and completions |
 
 Run `ug help COMMAND` for all options and examples. `--json` produces structured
 output where supported; `--quiet` suppresses routine output and progress.
@@ -168,8 +168,30 @@ Errors return status 1. `doctor` returns 2 when managed state is unhealthy.
 
 ## Shell integration
 
-Shell integration is optional. It adds the managed `godot` shim and command
-completions to the current session:
+`ug` works without shell integration. Use `ug exec` to run a selected build
+directly:
+
+```sh
+ug exec 4.7 -- --editor project.godot
+```
+
+Shell integration is only needed for two conveniences: running the build
+selected by `ug use` as `godot`, and enabling tab completion.
+
+To expose the managed `godot` shim in bash, zsh, or another POSIX-style shell:
+
+```sh
+export PATH="$(ug shell path):$PATH"
+```
+
+For fish:
+
+```fish
+fish_add_path --prepend (ug shell path)
+```
+
+Completions can be loaded separately with `ug shell completions SHELL`. For a
+combined current-session setup:
 
 ```sh
 # zsh
@@ -182,9 +204,9 @@ eval "$(ug shell init bash)"
 ug shell init fish | source
 ```
 
-`ug shell init` prints shell code; it does not edit startup files. Standalone
-completions are available for zsh, bash, fish, PowerShell, and Elvish. See
-[Shell integration](docs/shell-integration.md).
+These commands print shell code; they do not edit startup files. See
+[Shell integration](docs/shell-integration.md) for completion commands and
+persistent setup.
 
 ## Storage and integrity
 

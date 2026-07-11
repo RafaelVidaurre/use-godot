@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add `ug shell path` for explicit, shell-neutral access to the managed
+  `godot` shim.
+- Separate shim activation from completion setup in the shell documentation.
+- Avoid rerunning zsh `compinit` when it is already loaded.
+
 ## 0.1.1 - 2026-07-10
 
 - Make the documented release-installer fallback shell-independent and

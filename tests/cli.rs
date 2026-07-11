@@ -179,6 +179,12 @@ fn doctor_reports_interrupted_staging_without_touching_it() {
 #[test]
 fn shell_integration_is_explicit_for_zsh_bash_and_fish() {
     let root = TempDir::new().unwrap();
+    ug(root.path())
+        .args(["shell", "path"])
+        .assert()
+        .success()
+        .stdout(format!("{}\n", root.path().join("shims").display()));
+
     for (shell, marker) in [
         ("zsh", "compdef"),
         ("bash", "complete"),
@@ -193,6 +199,14 @@ fn shell_integration_is_explicit_for_zsh_bash_and_fish() {
             ))
             .stdout(predicate::str::contains(marker));
     }
+
+    ug(root.path())
+        .args(["shell", "init", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "if ! type compdef >/dev/null 2>&1",
+        ));
 }
 
 #[test]

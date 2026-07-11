@@ -123,7 +123,7 @@ enum Commands {
     },
     /// Diagnose managed state.
     Doctor,
-    /// Emit shell setup or completion scripts.
+    /// Show or emit optional shell integration.
     Shell {
         #[command(subcommand)]
         command: ShellCommand,
@@ -140,10 +140,14 @@ enum AliasCommand {
 
 #[derive(Subcommand, Debug)]
 enum ShellCommand {
+    /// Print the directory containing the managed godot shim.
+    Path,
+    /// Emit PATH setup and ug completions for the selected shell.
     Init {
         #[arg(value_enum)]
         shell: IntegrationShell,
     },
+    /// Generate a completion script without changing PATH.
     Completions {
         #[arg(value_enum)]
         shell: Shell,
@@ -653,6 +657,7 @@ fn doctor(flags: OutputFlags, paths: &Paths) -> Result<u8> {
 
 fn shell_command(paths: &Paths, command: ShellCommand) -> Result<()> {
     match command {
+        ShellCommand::Path => println!("{}", paths.shims().display()),
         ShellCommand::Init { shell } => {
             let executable = env::current_exe().context("locate ug executable")?;
             let binary_dir = executable.parent().context("ug executable has no parent")?;
@@ -664,7 +669,9 @@ fn shell_command(paths: &Paths, command: ShellCommand) -> Result<()> {
                         shell_single_quote(&binary_dir.to_string_lossy())
                     );
                     if matches!(shell, IntegrationShell::Zsh) {
-                        println!("autoload -Uz compinit && compinit");
+                        println!(
+                            "if ! type compdef >/dev/null 2>&1; then autoload -Uz compinit && compinit; fi"
+                        );
                     }
                 }
                 IntegrationShell::Fish => println!(
