@@ -246,19 +246,28 @@ impl ReleaseCatalog {
             .send()?
             .error_for_status()?
             .text()?;
+        let mut matching_hash = None;
         for line in text.lines() {
             let mut fields = line.split_whitespace();
             if let (Some(hash), Some(name)) = (fields.next(), fields.next()) {
-                if name.trim_start_matches('*') == asset.name {
-                    validate_hex(hash, 128)?;
-                    return Ok(Digest::Sha512(hash.to_ascii_lowercase()));
+                if name.trim_start_matches('*') == asset.name
+                    && matching_hash.replace(hash).is_some()
+                {
+                    bail!(
+                        "SHA512-SUMS.txt has multiple entries for {}; refusing download",
+                        asset.name
+                    );
                 }
             }
         }
-        bail!(
-            "SHA512-SUMS.txt has no entry for {}; refusing download",
-            asset.name
-        )
+        let hash = matching_hash.with_context(|| {
+            format!(
+                "SHA512-SUMS.txt has no entry for {}; refusing download",
+                asset.name
+            )
+        })?;
+        validate_hex(hash, 128)?;
+        Ok(Digest::Sha512(hash.to_ascii_lowercase()))
     }
 
     pub fn client(&self) -> &Client {
@@ -303,6 +312,10 @@ fn validate_hex(value: &str, length: usize) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::{sync::Arc, thread, time::Duration};
+
+    use tiny_http::{Header, Response, Server, StatusCode};
+
     use super::*;
 
     fn release(tag: &str, names: &[&str]) -> Release {
@@ -331,6 +344,308 @@ mod tests {
         }
     }
 
+    fn catalog_with(tags: &[&str]) -> ReleaseCatalog {
+        ReleaseCatalog {
+            releases: tags.iter().map(|tag| release(tag, &[])).collect(),
+            ..catalog()
+        }
+    }
+
+    fn serve(responses: Vec<(u16, String)>) -> (String, thread::JoinHandle<()>) {
+        let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
+        let base_url = format!("http://{}", server.server_addr());
+        let handle = thread::spawn(move || {
+            for (status, body) in responses {
+                let request = server
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap()
+                    .expect("mock server timed out waiting for a request");
+                request
+                    .respond(
+                        Response::from_string(body)
+                            .with_status_code(StatusCode(status))
+                            .with_header(
+                                Header::from_bytes("Content-Type", "application/json").unwrap(),
+                            ),
+                    )
+                    .unwrap();
+            }
+        });
+        (base_url, handle)
+    }
+
+    #[test]
+    fn resolution_orders_versions_and_prerelease_channels() {
+        let catalog = catalog_with(&[
+            "4.6.3-stable",
+            "4.7-stable",
+            "4.7.1-stable",
+            "4.8-dev2",
+            "4.8-alpha3",
+            "4.8-beta1",
+            "4.8-beta2",
+            "4.8-rc1",
+            "4.8-rc2",
+            "4.8-stable",
+            "5.0-beta1",
+        ]);
+
+        for (selector, include_prerelease, expected) in [
+            ("latest", true, "4.8-stable"),
+            ("stable", true, "4.8-stable"),
+            ("4", true, "4.8-stable"),
+            ("4.7", true, "4.7.1-stable"),
+            ("4.8-beta", true, "4.8-beta2"),
+            ("4.8-beta1", true, "4.8-beta1"),
+            ("rc", true, "4.8-rc2"),
+            ("beta", true, "5.0-beta1"),
+            ("4.8@mono", true, "4.8-stable"),
+        ] {
+            assert_eq!(
+                catalog
+                    .resolve(selector, include_prerelease)
+                    .unwrap()
+                    .tag_name,
+                expected,
+                "selector {selector}"
+            );
+        }
+
+        assert!(catalog.resolve("beta", false).is_err());
+        assert!(catalog.resolve("4.8.0.1", true).is_err());
+    }
+
+    #[test]
+    fn official_asset_names_cover_supported_target_matrix() {
+        for (tag, variant, platform, arch, expected) in [
+            (
+                "3.6.2-stable",
+                Variant::Standard,
+                "macos",
+                "x86_64",
+                "Godot_v3.6.2-stable_osx.universal.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Standard,
+                "macos",
+                "arm64",
+                "Godot_v4.7-stable_macos.universal.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Mono,
+                "macos",
+                "arm64",
+                "Godot_v4.7-stable_mono_macos.universal.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Standard,
+                "linux",
+                "x86_64",
+                "Godot_v4.7-stable_linux.x86_64.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Mono,
+                "linux",
+                "arm64",
+                "Godot_v4.7-stable_mono_linux_arm64.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Standard,
+                "windows",
+                "x86_64",
+                "Godot_v4.7-stable_win64.exe.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Standard,
+                "windows",
+                "x86_32",
+                "Godot_v4.7-stable_win32.exe.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Standard,
+                "windows",
+                "arm64",
+                "Godot_v4.7-stable_windows_arm64.exe.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Mono,
+                "windows",
+                "x86_64",
+                "Godot_v4.7-stable_mono_win64.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Mono,
+                "windows",
+                "x86_32",
+                "Godot_v4.7-stable_mono_win32.zip",
+            ),
+            (
+                "4.7-stable",
+                Variant::Mono,
+                "windows",
+                "arm64",
+                "Godot_v4.7-stable_mono_windows_arm64.zip",
+            ),
+        ] {
+            let release = release(tag, &[expected]);
+            assert_eq!(
+                catalog()
+                    .asset_for(&release, &variant, platform, arch)
+                    .unwrap()
+                    .name,
+                expected
+            );
+        }
+
+        let release = release("4.7-stable", &[]);
+        assert!(
+            catalog()
+                .asset_for(&release, &Variant::Double, "macos", "arm64")
+                .unwrap_err()
+                .to_string()
+                .contains("not published")
+        );
+        assert!(
+            catalog()
+                .asset_for(&release, &Variant::Standard, "windows", "mips64")
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported official target")
+        );
+    }
+
+    #[test]
+    fn fetch_paginates_and_filters_drafts_and_invalid_tags() {
+        let first_page: Vec<_> = (0..100)
+            .map(|index| release(&format!("invalid-{index}"), &[]))
+            .collect();
+        let second_page = vec![
+            release("4.7-stable", &[]),
+            Release {
+                draft: true,
+                ..release("4.8-stable", &[])
+            },
+            release("not-a-release", &[]),
+        ];
+        let (base_url, handle) = serve(vec![
+            (200, serde_json::to_string(&first_page).unwrap()),
+            (200, serde_json::to_string(&second_page).unwrap()),
+        ]);
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            root: temp.path().join("root"),
+        };
+
+        let fetched = ReleaseCatalog::fetch(&paths, false, Some(&base_url)).unwrap();
+        handle.join().unwrap();
+        assert_eq!(fetched.releases.len(), 1);
+        assert_eq!(fetched.releases[0].tag_name, "4.7-stable");
+    }
+
+    #[test]
+    fn fetch_fails_closed_for_api_parse_and_empty_catalog_errors() {
+        for (status, body, expected) in [
+            (500, "[]".to_owned(), "GitHub releases request failed"),
+            (200, "not json".to_owned(), "parse GitHub releases response"),
+            (
+                200,
+                serde_json::to_string(&vec![Release {
+                    draft: true,
+                    ..release("4.7-stable", &[])
+                }])
+                .unwrap(),
+                "official release catalog was empty",
+            ),
+        ] {
+            let (base_url, handle) = serve(vec![(status, body)]);
+            let temp = tempfile::tempdir().unwrap();
+            let paths = Paths {
+                root: temp.path().join("root"),
+            };
+            let error = ReleaseCatalog::fetch(&paths, true, Some(&base_url)).unwrap_err();
+            handle.join().unwrap();
+            assert!(
+                format!("{error:#}").contains(expected),
+                "expected {expected:?} in {error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn digest_metadata_is_strict_and_normalized() {
+        let mut valid_release = release("4.7-stable", &["editor.zip"]);
+        let asset = &mut valid_release.assets[0];
+        asset.digest = Some(format!("sha256:{}", "A".repeat(64)));
+        assert_eq!(
+            catalog()
+                .authoritative_digest(&valid_release, &valid_release.assets[0])
+                .unwrap(),
+            Digest::Sha256("a".repeat(64))
+        );
+
+        for digest in [
+            format!("sha256:{}", "a".repeat(63)),
+            format!("sha256:{}g", "a".repeat(63)),
+        ] {
+            let mut malformed = release("4.7-stable", &["editor.zip"]);
+            malformed.assets[0].digest = Some(digest);
+            assert!(
+                catalog()
+                    .authoritative_digest(&malformed, &malformed.assets[0])
+                    .unwrap_err()
+                    .to_string()
+                    .contains("invalid authoritative digest")
+            );
+        }
+
+        let missing = release("4.7-stable", &["editor.zip"]);
+        assert!(
+            catalog()
+                .authoritative_digest(&missing, &missing.assets[0])
+                .unwrap_err()
+                .to_string()
+                .contains("neither a SHA-256 asset digest nor SHA512-SUMS.txt")
+        );
+    }
+
+    #[test]
+    fn sha512_metadata_rejects_missing_malformed_and_duplicate_entries() {
+        let valid = "b".repeat(128);
+        let malformed = "z".repeat(128);
+        for (sums, expected) in [
+            (format!("{valid}  other.zip\n"), "has no entry"),
+            (
+                format!("{malformed}  editor.zip\n"),
+                "invalid authoritative digest",
+            ),
+            (
+                format!("{valid}  editor.zip\n{valid}  editor.zip\n"),
+                "multiple entries",
+            ),
+        ] {
+            let (base_url, handle) = serve(vec![(200, sums)]);
+            let mut release = release("4.7-stable", &["editor.zip", "SHA512-SUMS.txt"]);
+            release.assets[1].browser_download_url = base_url;
+            let error = catalog()
+                .authoritative_digest(&release, &release.assets[0])
+                .unwrap_err();
+            handle.join().unwrap();
+            assert!(
+                format!("{error:#}").contains(expected),
+                "expected {expected:?} in {error:#}"
+            );
+        }
+    }
+
     #[test]
     fn mac_asset_names_cover_godot_three_and_four() {
         let three = release("3.6.2-stable", &["Godot_v3.6.2-stable_osx.universal.zip"]);
@@ -354,9 +669,26 @@ mod tests {
     fn corrupt_or_empty_cache_is_ignored() {
         let temp = tempfile::tempdir().unwrap();
         let cache = temp.path().join("releases.json");
+        assert!(!cache_is_fresh(&cache).unwrap());
+        fs::write(&cache, "[]").unwrap();
+        assert!(cache_is_fresh(&cache).unwrap());
+        fs::File::options()
+            .write(true)
+            .open(&cache)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - CACHE_MAX_AGE - Duration::from_secs(1)),
+            )
+            .unwrap();
+        assert!(!cache_is_fresh(&cache).unwrap());
         fs::write(&cache, "not json").unwrap();
+        assert!(cache_is_fresh(&cache).unwrap());
         assert!(read_cached(&cache).is_none());
         fs::write(&cache, "[]").unwrap();
+        assert!(read_cached(&cache).is_none());
+        fs::remove_file(&cache).unwrap();
+        fs::create_dir(&cache).unwrap();
         assert!(read_cached(&cache).is_none());
     }
 }

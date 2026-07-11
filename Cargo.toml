@@ -24,6 +24,7 @@ fs2 = "0.4"
 hex = "0.4"
 indicatif = "0.18"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+same-file = "1.0"
 semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

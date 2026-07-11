@@ -47,14 +47,69 @@ pub fn isolated_ug(environment_root: &Path, cwd: &Path) -> Command {
 }
 
 pub fn fake_godot(temp: &TempDir, name: &str) -> PathBuf {
-    let path = temp.path().join(name);
-    fs::write(&path, "#!/bin/sh\nprintf 'fake:%s\\n' \"$*\"\n").unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+
+        let path = temp.path().join(name);
+        fs::write(&path, "#!/bin/sh\nprintf 'fake:%s\\n' \"$*\"\n").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
     }
-    path
+    #[cfg(windows)]
+    {
+        let source = temp.path().join(format!("{name}.rs"));
+        let path = temp.path().join(format!("{name}.exe"));
+        fs::write(
+            &source,
+            r#"fn main() {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>().join(" ");
+    println!("fake:{arguments}");
+}
+"#,
+        )
+        .unwrap();
+        let status = std::process::Command::new("rustc")
+            .args(["--crate-name", "ug_test_godot"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&path)
+            .status()
+            .expect("run rustc for the Windows executable fixture");
+        assert!(status.success(), "compile the Windows executable fixture");
+        path
+    }
+}
+
+pub fn fake_godot_with_exit(temp: &TempDir, name: &str, code: u8) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp.path().join(name);
+        fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+    #[cfg(windows)]
+    {
+        let source = temp.path().join(format!("{name}.rs"));
+        let path = temp.path().join(format!("{name}.exe"));
+        fs::write(
+            &source,
+            format!("fn main() {{ std::process::exit({code}); }}\n"),
+        )
+        .unwrap();
+        let status = std::process::Command::new("rustc")
+            .args(["--crate-name", "ug_test_godot_exit"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&path)
+            .status()
+            .expect("run rustc for the Windows exit-status fixture");
+        assert!(status.success(), "compile the Windows exit-status fixture");
+        path
+    }
 }
 
 pub fn godot_zip() -> Vec<u8> {
@@ -62,8 +117,7 @@ pub fn godot_zip() -> Vec<u8> {
     {
         let mut zip = zip::ZipWriter::new(&mut cursor);
         let options = SimpleFileOptions::default().unix_permissions(0o755);
-        zip.start_file("Godot.app/Contents/MacOS/Godot", options)
-            .unwrap();
+        zip.start_file(official_binary_path(), options).unwrap();
         zip.write_all(b"#!/bin/sh\nexit 0\n").unwrap();
         zip.finish().unwrap();
     }
@@ -77,6 +131,49 @@ pub fn traversal_zip() -> Vec<u8> {
         zip.start_file("../escaped", SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"escape").unwrap();
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
+pub fn absolute_path_zip() -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        zip.start_file(
+            "/absolute/Godot.app/Contents/MacOS/Godot",
+            SimpleFileOptions::default().unix_permissions(0o755),
+        )
+        .unwrap();
+        zip.write_all(b"#!/bin/sh\nexit 0\n").unwrap();
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
+pub fn missing_executable_zip() -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        zip.start_file("README.txt", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"no executable in this archive").unwrap();
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
+#[cfg(unix)]
+pub fn escaping_symlink_zip() -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        zip.add_symlink(
+            "Godot.app/Contents/MacOS/Godot",
+            "../../../../outside",
+            SimpleFileOptions::default(),
+        )
+        .unwrap();
         zip.finish().unwrap();
     }
     cursor.into_inner()
@@ -110,10 +207,20 @@ impl Drop for MockReleaseServer {
 }
 
 pub fn mock_release_server(archive: Vec<u8>, digest: String) -> MockReleaseServer {
+    let advertised_size = archive.len() as u64;
+    mock_release_server_with_size(archive, digest, advertised_size)
+}
+
+pub fn mock_release_server_with_size(
+    archive: Vec<u8>,
+    digest: String,
+    advertised_size: u64,
+) -> MockReleaseServer {
     let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
     let base_url = format!("http://{}", server.server_addr());
-    let asset_url = format!("{base_url}/Godot_v4.7-stable_macos.universal.zip");
-    let body = serde_json::json!([{ "tag_name": "4.7-stable", "draft": false, "prerelease": false, "published_at": "2026-06-18T00:00:00Z", "assets": [{ "name": "Godot_v4.7-stable_macos.universal.zip", "browser_download_url": asset_url, "size": archive.len(), "digest": format!("sha256:{digest}") }] }]).to_string();
+    let asset_name = official_asset_name();
+    let asset_url = format!("{base_url}/{asset_name}");
+    let body = serde_json::json!([{ "tag_name": "4.7-stable", "draft": false, "prerelease": false, "published_at": "2026-06-18T00:00:00Z", "assets": [{ "name": asset_name, "browser_download_url": asset_url, "size": advertised_size, "digest": format!("sha256:{digest}") }] }]).to_string();
     let handle = thread::spawn(move || {
         for request_number in 1..=2 {
             let request = server
@@ -143,7 +250,7 @@ pub fn mock_release_server(archive: Vec<u8>, digest: String) -> MockReleaseServe
 pub fn mock_sha512_release_server(archive: Vec<u8>, digest: String) -> MockReleaseServer {
     let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
     let base_url = format!("http://{}", server.server_addr());
-    let asset_name = "Godot_v4.7-stable_macos.universal.zip";
+    let asset_name = official_asset_name();
     let asset_url = format!("{base_url}/{asset_name}");
     let sums_url = format!("{base_url}/SHA512-SUMS.txt");
     let body = serde_json::json!([{
@@ -152,7 +259,7 @@ pub fn mock_sha512_release_server(archive: Vec<u8>, digest: String) -> MockRelea
         "prerelease": false,
         "published_at": "2026-06-18T00:00:00Z",
         "assets": [
-            { "name": asset_name, "browser_download_url": asset_url, "size": archive.len(), "digest": null },
+            { "name": asset_name.clone(), "browser_download_url": asset_url, "size": archive.len(), "digest": null },
             { "name": "SHA512-SUMS.txt", "browser_download_url": sums_url, "size": 1, "digest": null }
         ]
     }])
@@ -194,4 +301,59 @@ pub fn sha256(bytes: &[u8]) -> String {
 
 pub fn sha512(bytes: &[u8]) -> String {
     hex::encode(Sha512::digest(bytes))
+}
+
+pub fn shim_path(root: &Path) -> PathBuf {
+    root.join("shims")
+        .join(if cfg!(windows) { "godot.exe" } else { "godot" })
+}
+
+pub fn assert_shim_targets(root: &Path, expected: &Path) {
+    assert!(same_file::is_same_file(shim_path(root), expected).unwrap());
+}
+
+pub fn official_binary_path() -> String {
+    if cfg!(target_os = "macos") {
+        "Godot.app/Contents/MacOS/Godot".into()
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            "Godot_v4.7-stable_windows_arm64.exe".into()
+        } else if cfg!(target_arch = "x86") {
+            "Godot_v4.7-stable_win32.exe".into()
+        } else {
+            "Godot_v4.7-stable_win64.exe".into()
+        }
+    } else {
+        format!(
+            "Godot_v4.7-stable_linux.{}",
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x86_64"
+            }
+        )
+    }
+}
+
+fn official_asset_name() -> String {
+    if cfg!(target_os = "macos") {
+        "Godot_v4.7-stable_macos.universal.zip".into()
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            "Godot_v4.7-stable_windows_arm64.exe.zip".into()
+        } else if cfg!(target_arch = "x86") {
+            "Godot_v4.7-stable_win32.exe.zip".into()
+        } else {
+            "Godot_v4.7-stable_win64.exe.zip".into()
+        }
+    } else {
+        format!(
+            "Godot_v4.7-stable_linux.{}.zip",
+            if cfg!(target_arch = "aarch64") {
+                "arm64"
+            } else {
+                "x86_64"
+            }
+        )
+    }
 }

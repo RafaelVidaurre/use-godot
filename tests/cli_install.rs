@@ -6,9 +6,13 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use support::{
-    fake_godot, godot_zip, mock_release_server, mock_sha512_release_server, sha256, sha512,
-    traversal_zip, ug,
+    absolute_path_zip, fake_godot, godot_zip, missing_executable_zip, mock_release_server,
+    mock_release_server_with_size, mock_sha512_release_server, official_binary_path, sha256,
+    sha512, traversal_zip, ug,
 };
+
+#[cfg(unix)]
+use support::escaping_symlink_zip;
 
 #[test]
 fn all_non_official_variant_families_import_independently() {
@@ -50,7 +54,7 @@ fn official_download_is_verified_and_committed_atomically() {
         .args(["which", "4.7"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Godot.app/Contents/MacOS/Godot"));
+        .stdout(predicate::str::contains(official_binary_path()));
     let names: Vec<_> = fs::read_dir(root.path().join("versions"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -195,6 +199,94 @@ fn archive_path_traversal_is_rejected() {
         .stderr(predicate::str::contains("escapes destination"));
     server.finish();
     assert!(!root.path().join("versions/escaped").exists());
+    assert_eq!(
+        fs::read_dir(root.path().join("downloads")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn absolute_archive_path_is_rejected() {
+    let root = TempDir::new().unwrap();
+    let archive = absolute_path_zip();
+    let server = mock_release_server(archive.clone(), sha256(&archive));
+    ug(root.path())
+        .args(["install", "4.7", "--api-base", &server.base_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("escapes destination"));
+    server.finish();
+    assert_eq!(
+        fs::read_dir(root.path().join("versions")).unwrap().count(),
+        0
+    );
+    assert_eq!(
+        fs::read_dir(root.path().join("downloads")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn archive_symlink_escape_is_rejected() {
+    let root = TempDir::new().unwrap();
+    let archive = escaping_symlink_zip();
+    let server = mock_release_server(archive.clone(), sha256(&archive));
+    ug(root.path())
+        .args(["install", "4.7", "--api-base", &server.base_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unsafe archive symlink"));
+    server.finish();
+    assert_eq!(
+        fs::read_dir(root.path().join("versions")).unwrap().count(),
+        0
+    );
+    assert_eq!(
+        fs::read_dir(root.path().join("downloads")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn archive_without_godot_executable_is_rejected() {
+    let root = TempDir::new().unwrap();
+    let archive = missing_executable_zip();
+    let server = mock_release_server(archive.clone(), sha256(&archive));
+    ug(root.path())
+        .args(["install", "4.7", "--api-base", &server.base_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "could not locate Godot executable",
+        ));
+    server.finish();
+    assert_eq!(
+        fs::read_dir(root.path().join("versions")).unwrap().count(),
+        0
+    );
+    assert_eq!(
+        fs::read_dir(root.path().join("downloads")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn advertised_download_size_mismatch_is_rejected() {
+    let root = TempDir::new().unwrap();
+    let archive = godot_zip();
+    let server =
+        mock_release_server_with_size(archive.clone(), sha256(&archive), archive.len() as u64 + 1);
+    ug(root.path())
+        .args(["install", "4.7", "--api-base", &server.base_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("integrity check failed"));
+    server.finish();
+    assert_eq!(
+        fs::read_dir(root.path().join("versions")).unwrap().count(),
+        0
+    );
     assert_eq!(
         fs::read_dir(root.path().join("downloads")).unwrap().count(),
         0
