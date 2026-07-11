@@ -21,3 +21,5 @@ tap = "RafaelVidaurre/homebrew-tap"
 publish-jobs = ["homebrew"]
 # Post-announce jobs to run in CI
 post-announce-jobs = ["./homebrew-audit"]
+# Plan jobs to run in CI
+plan-jobs = ["./release-policy"]

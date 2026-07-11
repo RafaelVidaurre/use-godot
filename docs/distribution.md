@@ -3,6 +3,11 @@
 Tagged releases are built by `cargo-dist` using the committed configuration in
 `dist-workspace.toml` and `.github/workflows/release.yml`.
 
+The strict version/tag guard lives in the reusable
+`.github/workflows/release-policy.yml` workflow and is registered through
+`cargo-dist`'s `plan-jobs` configuration. This keeps `release.yml` generated and
+regeneratable; do not insert hand-written steps into it.
+
 ## Release process
 
 1. Choose the version using the compatibility rules in
