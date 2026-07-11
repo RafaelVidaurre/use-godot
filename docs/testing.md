@@ -54,7 +54,13 @@ coverage and why restoring it in the same change is not practical.
 
 Unit tests cover release tags, variant identity, semantic ordering, channel
 resolution, alias cycles, ambiguity, import parsing, project-file discovery,
-and download progress accounting.
+download progress accounting, archive resource limits, atomic publication, and
+failure/recovery after every durable activation and uninstall step.
+
+`tests/properties.rs` uses bounded, reproducible property tests for identity
+encoding, parser round trips, selector and alias invariants, and modeled state
+transitions. Minimized failures are kept in `proptest-regressions/` and must
+remain in version control.
 
 Integration tests execute the compiled CLI against temporary roots and cover:
 
@@ -66,8 +72,12 @@ Integration tests execute the compiled CLI against temporary roots and cover:
 - checksum rejection with no canonical install or partial download left behind;
 - corrupt archives, path traversal, SHA-512 checksum fallback, and temporary
   download cleanup;
+- authoritative and absolute download ceilings, archive entry/expanded-size
+  ceilings, compression ratio and path-depth limits, and duplicate output-path
+  rejection using small injected test policies and compressed fixtures;
 - relative roots, manifest containment, managed symlinks, and activation/
   uninstall journal recovery;
+- serialization of concurrent mutating processes through the state lock;
 - interrupted staging visibility in `doctor`;
 - generated zsh, bash, and fish integration from isolated roots.
 

@@ -1,0 +1,3 @@
+# Seeds for minimized failures in tests/properties.rs are appended here by
+# the suite's direct file failure persistence.
+cc 75aae484a98b769afc54f6bfd2f045118976c9d679615fa3c012045fa2f5601f # shrinks to left = "a", middle = "A", right = "a"
