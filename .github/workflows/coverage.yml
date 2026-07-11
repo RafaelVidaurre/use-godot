@@ -1,0 +1,49 @@
+name: coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  line-coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install pinned Rust and coverage tooling
+        shell: bash
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal --component llvm-tools-preview
+          rustup default 1.85.0
+          cargo install cargo-llvm-cov --version 0.6.21 --locked
+
+      - name: Run instrumented tests
+        shell: bash
+        run: cargo llvm-cov --workspace --all-features --all-targets --locked --no-report
+
+      - name: Enforce and publish the measured baseline
+        shell: bash
+        run: |
+          minimum="$(<.github/coverage-threshold)"
+          cargo llvm-cov report --summary-only --fail-under-lines "$minimum" | tee coverage-summary.txt
+          cargo llvm-cov report --lcov --output-path lcov.info
+          {
+            echo '### Line coverage'
+            echo
+            echo '```text'
+            cat coverage-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload inspectable coverage output
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage
+          path: |
+            coverage-summary.txt
+            lcov.info
+          if-no-files-found: error
