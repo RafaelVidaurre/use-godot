@@ -4,7 +4,10 @@ use std::{
     fs,
     io::{Cursor, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        mpsc::{Receiver, SyncSender, sync_channel},
+    },
     thread,
     time::Duration,
 };
@@ -18,13 +21,21 @@ use zip::write::SimpleFileOptions;
 const SERVER_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn ug(root: &Path) -> Command {
+    Command::from_std(ug_process(root))
+}
+
+pub fn ug_process(root: &Path) -> std::process::Command {
     let cwd = root.join(".test-environment/cwd");
-    let mut command = isolated_ug(root, &cwd);
+    let mut command = isolated_ug_process(root, &cwd);
     command.arg("--root").arg(root);
     command
 }
 
 pub fn isolated_ug(environment_root: &Path, cwd: &Path) -> Command {
+    Command::from_std(isolated_ug_process(environment_root, cwd))
+}
+
+fn isolated_ug_process(environment_root: &Path, cwd: &Path) -> std::process::Command {
     let environment = environment_root.join(".test-environment");
     let home = environment.join("home");
     let config = environment.join("config");
@@ -34,7 +45,7 @@ pub fn isolated_ug(environment_root: &Path, cwd: &Path) -> Command {
         fs::create_dir_all(directory).unwrap();
     }
 
-    let mut command = Command::cargo_bin("ug").unwrap();
+    let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("ug"));
     command
         .env_remove("UG_ROOT")
         .env_remove("UG_RELEASE_API")
@@ -163,6 +174,50 @@ pub fn missing_executable_zip() -> Vec<u8> {
     cursor.into_inner()
 }
 
+pub fn duplicate_path_zip() -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        for (name, contents) in [
+            ("duplicate/path", b"#!/bin/sh\nexit 0\n".as_slice()),
+            ("duplicate//path", b"replacement".as_slice()),
+        ] {
+            let options = SimpleFileOptions::default().unix_permissions(0o755);
+            zip.start_file(name, options).unwrap();
+            zip.write_all(contents).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
+pub fn high_compression_ratio_zip() -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o755);
+        zip.start_file(official_binary_path(), options).unwrap();
+        zip.write_all(&vec![0; 8 * 1024 * 1024]).unwrap();
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
+pub fn excessive_depth_zip() -> Vec<u8> {
+    let mut cursor = Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let name = format!("{}/Godot", vec!["nested"; 65].join("/"));
+        zip.start_file(name, SimpleFileOptions::default().unix_permissions(0o755))
+            .unwrap();
+        zip.write_all(b"#!/bin/sh\nexit 0\n").unwrap();
+        zip.finish().unwrap();
+    }
+    cursor.into_inner()
+}
+
 #[cfg(unix)]
 pub fn escaping_symlink_zip() -> Vec<u8> {
     let mut cursor = Cursor::new(Vec::new());
@@ -182,6 +237,48 @@ pub fn escaping_symlink_zip() -> Vec<u8> {
 pub struct MockReleaseServer {
     pub base_url: String,
     handle: Option<thread::JoinHandle<Result<(), String>>>,
+}
+
+pub struct PausedReleaseServer {
+    pub base_url: String,
+    catalog_requested: Receiver<()>,
+    resume_catalog: SyncSender<()>,
+    handle: Option<thread::JoinHandle<Result<(), String>>>,
+}
+
+impl PausedReleaseServer {
+    pub fn wait_until_catalog_requested(&self) {
+        self.catalog_requested
+            .recv_timeout(SERVER_TIMEOUT)
+            .expect("installer did not request the release catalog while holding the lock");
+    }
+
+    pub fn resume(&self) {
+        self.resume_catalog
+            .send(())
+            .expect("mock release server stopped before resume");
+    }
+
+    pub fn finish(mut self) {
+        let result = self
+            .handle
+            .take()
+            .expect("paused mock server thread is present")
+            .join()
+            .expect("paused mock server thread did not panic");
+        if let Err(error) = result {
+            panic!("paused mock release server failed: {error}");
+        }
+    }
+}
+
+impl Drop for PausedReleaseServer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = self.resume_catalog.try_send(());
+            let _ = handle.join();
+        }
+    }
 }
 
 impl MockReleaseServer {
@@ -209,6 +306,67 @@ impl Drop for MockReleaseServer {
 pub fn mock_release_server(archive: Vec<u8>, digest: String) -> MockReleaseServer {
     let advertised_size = archive.len() as u64;
     mock_release_server_with_size(archive, digest, advertised_size)
+}
+
+pub fn paused_release_server(archive: Vec<u8>, digest: String) -> PausedReleaseServer {
+    let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
+    let base_url = format!("http://{}", server.server_addr());
+    let asset_name = official_asset_name();
+    let asset_url = format!("{base_url}/{asset_name}");
+    let body = serde_json::json!([{
+        "tag_name": "4.7-stable",
+        "draft": false,
+        "prerelease": false,
+        "published_at": "2026-06-18T00:00:00Z",
+        "assets": [{
+            "name": asset_name,
+            "browser_download_url": asset_url,
+            "size": archive.len(),
+            "digest": format!("sha256:{digest}")
+        }]
+    }])
+    .to_string();
+    let (catalog_requested_tx, catalog_requested) = sync_channel(1);
+    let (resume_catalog, resume_catalog_rx) = sync_channel(1);
+    let handle = thread::spawn(move || {
+        let request = server
+            .recv_timeout(SERVER_TIMEOUT)
+            .map_err(|error| format!("receive paused catalog request: {error}"))?
+            .ok_or_else(|| "timed out waiting for paused catalog request".to_owned())?;
+        if !request.url().starts_with("/releases?") {
+            return Err(format!(
+                "expected release catalog request, got {}",
+                request.url()
+            ));
+        }
+        catalog_requested_tx
+            .send(())
+            .map_err(|error| format!("signal catalog request: {error}"))?;
+        resume_catalog_rx
+            .recv_timeout(SERVER_TIMEOUT)
+            .map_err(|error| format!("wait to resume catalog response: {error}"))?;
+        request
+            .respond(
+                Response::from_string(body)
+                    .with_header(Header::from_bytes("Content-Type", "application/json").unwrap()),
+            )
+            .map_err(|error| format!("respond to paused catalog request: {error}"))?;
+
+        let request = server
+            .recv_timeout(SERVER_TIMEOUT)
+            .map_err(|error| format!("receive paused archive request: {error}"))?
+            .ok_or_else(|| "timed out waiting for paused archive request".to_owned())?;
+        request
+            .respond(Response::from_data(archive))
+            .map_err(|error| format!("respond to paused archive request: {error}"))?;
+        Ok(())
+    });
+    PausedReleaseServer {
+        base_url,
+        catalog_requested,
+        resume_catalog,
+        handle: Some(handle),
+    }
 }
 
 pub fn mock_release_server_with_size(

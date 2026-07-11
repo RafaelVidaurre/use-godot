@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -16,6 +17,29 @@ use crate::{
     paths::Paths,
     remote::{Digest, ReleaseCatalog},
     state,
+};
+
+const MIB: u64 = 1024 * 1024;
+
+#[derive(Clone, Copy, Debug)]
+struct ResourceLimits {
+    max_download_bytes: u64,
+    max_archive_entries: usize,
+    max_archive_entry_bytes: u64,
+    max_archive_total_bytes: u64,
+    max_compression_ratio: u64,
+    max_path_depth: usize,
+    max_symlink_target_bytes: u64,
+}
+
+const PRODUCTION_LIMITS: ResourceLimits = ResourceLimits {
+    max_download_bytes: 2 * 1024 * MIB,
+    max_archive_entries: 100_000,
+    max_archive_entry_bytes: 2 * 1024 * MIB,
+    max_archive_total_bytes: 8 * 1024 * MIB,
+    max_compression_ratio: 1_000,
+    max_path_depth: 64,
+    max_symlink_target_bytes: 4 * 1024,
 };
 
 pub trait InstallReporter {
@@ -68,6 +92,7 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
         bail!("{} is already installed", identity.display_short());
     }
     let asset = catalog.asset_for(release, &options.variant, options.platform, options.arch)?;
+    let max_download_bytes = download_limit(asset.size, PRODUCTION_LIMITS)?;
     options.reporter.phase("Reading integrity metadata");
     let digest = catalog.authoritative_digest(release, asset)?;
     let mut partial = Builder::new()
@@ -86,6 +111,7 @@ fn official(paths: &Paths, options: InstallOptions<'_>) -> Result<Installation> 
         partial.as_file_mut(),
         &digest,
         options.reporter,
+        max_download_bytes,
     )?;
     partial.as_file().sync_all()?;
     options.reporter.phase("Verifying download");
@@ -223,20 +249,29 @@ fn copy_and_hash(
     writer: &mut impl Write,
     expected: &Digest,
     reporter: &dyn InstallReporter,
+    max_bytes: u64,
 ) -> Result<(String, bool, u64)> {
     let mut sha256 = Sha256::new();
     let mut sha512 = Sha512::new();
     let mut buffer = [0u8; 64 * 1024];
     let mut total = 0u64;
     loop {
-        let count = reader.read(&mut buffer)?;
+        let remaining_with_probe = max_bytes.saturating_sub(total).saturating_add(1);
+        let read_length = remaining_with_probe.min(buffer.len() as u64) as usize;
+        let count = reader.read(&mut buffer[..read_length])?;
         if count == 0 {
             break;
+        }
+        let next_total = total
+            .checked_add(count as u64)
+            .context("download byte count overflow")?;
+        if next_total > max_bytes {
+            bail!("download exceeded safety limit of {max_bytes} bytes");
         }
         writer.write_all(&buffer[..count])?;
         sha256.update(&buffer[..count]);
         sha512.update(&buffer[..count]);
-        total += count as u64;
+        total = next_total;
         reporter.download_advanced(count as u64);
     }
     let actual256 = hex::encode(sha256.finalize());
@@ -247,9 +282,32 @@ fn copy_and_hash(
     Ok((actual256, valid, total))
 }
 
+fn download_limit(authoritative_size: u64, limits: ResourceLimits) -> Result<u64> {
+    if authoritative_size > limits.max_download_bytes {
+        bail!(
+            "official asset size {authoritative_size} exceeds safety limit of {} bytes",
+            limits.max_download_bytes
+        );
+    }
+    Ok(if authoritative_size == 0 {
+        limits.max_download_bytes
+    } else {
+        authoritative_size
+    })
+}
+
 fn extract_zip(archive: &Path, destination: &Path) -> Result<()> {
+    extract_zip_with_limits(archive, destination, PRODUCTION_LIMITS)
+}
+
+fn extract_zip_with_limits(
+    archive: &Path,
+    destination: &Path,
+    limits: ResourceLimits,
+) -> Result<()> {
     let file = File::open(archive)?;
     let mut zip = zip::ZipArchive::new(file).context("open Godot ZIP archive")?;
+    validate_archive_entries(&mut zip, limits)?;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
         let relative = entry
@@ -269,8 +327,12 @@ fn extract_zip(archive: &Path, destination: &Path) -> Result<()> {
             .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
             use std::os::unix::fs::symlink;
-            let mut target = String::new();
-            entry.read_to_string(&mut target)?;
+            let entry_name = entry.name().to_owned();
+            let expected_size = entry.size();
+            let mut target_bytes = Vec::new();
+            copy_exact_size(&mut entry, &mut target_bytes, expected_size, &entry_name)?;
+            let target = String::from_utf8(target_bytes)
+                .with_context(|| format!("archive symlink target is not UTF-8: {entry_name}"))?;
             let target = Path::new(&target);
             if target.is_absolute()
                 || target
@@ -287,12 +349,102 @@ fn extract_zip(archive: &Path, destination: &Path) -> Result<()> {
             continue;
         }
         let mut file = File::create(&output)?;
-        std::io::copy(&mut entry, &mut file)?;
+        let entry_name = entry.name().to_owned();
+        let expected_size = entry.size();
+        copy_exact_size(&mut entry, &mut file, expected_size, &entry_name)?;
         #[cfg(unix)]
         if let Some(mode) = entry.unix_mode() {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&output, fs::Permissions::from_mode(mode))?;
         }
+    }
+    Ok(())
+}
+
+fn validate_archive_entries<R: Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    limits: ResourceLimits,
+) -> Result<()> {
+    if zip.len() > limits.max_archive_entries {
+        bail!(
+            "archive contains {} entries, exceeding safety limit of {}",
+            zip.len(),
+            limits.max_archive_entries
+        );
+    }
+
+    let mut total_bytes = 0u64;
+    let mut outputs = HashSet::with_capacity(zip.len());
+    for index in 0..zip.len() {
+        let entry = zip.by_index(index)?;
+        let relative = entry
+            .enclosed_name()
+            .with_context(|| format!("archive entry escapes destination: {}", entry.name()))?;
+        let depth = relative.components().count();
+        if depth > limits.max_path_depth {
+            bail!(
+                "archive path depth {depth} exceeds safety limit of {}: {}",
+                limits.max_path_depth,
+                entry.name()
+            );
+        }
+        if !outputs.insert(relative) {
+            bail!("archive contains duplicate output path: {}", entry.name());
+        }
+
+        let size = entry.size();
+        if size > limits.max_archive_entry_bytes {
+            bail!(
+                "archive entry {} expands to {size} bytes, exceeding per-entry safety limit of {}",
+                entry.name(),
+                limits.max_archive_entry_bytes
+            );
+        }
+        #[cfg(unix)]
+        if entry
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+            && size > limits.max_symlink_target_bytes
+        {
+            bail!(
+                "archive symlink target {} is {size} bytes, exceeding safety limit of {}",
+                entry.name(),
+                limits.max_symlink_target_bytes
+            );
+        }
+        total_bytes = total_bytes
+            .checked_add(size)
+            .context("archive uncompressed size overflow")?;
+        if total_bytes > limits.max_archive_total_bytes {
+            bail!(
+                "archive expands to more than {} bytes",
+                limits.max_archive_total_bytes
+            );
+        }
+
+        let compressed = entry.compressed_size();
+        if size > 0 && size > compressed.saturating_mul(limits.max_compression_ratio) {
+            bail!(
+                "archive entry {} exceeds compression ratio safety limit of {}:1",
+                entry.name(),
+                limits.max_compression_ratio
+            );
+        }
+    }
+    Ok(())
+}
+
+fn copy_exact_size(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    expected: u64,
+    entry_name: &str,
+) -> Result<()> {
+    let actual = std::io::copy(&mut reader.take(expected.saturating_add(1)), writer)?;
+    if actual != expected {
+        bail!(
+            "archive entry {entry_name} size differs from metadata (expected {expected} bytes, extracted {actual})"
+        );
     }
     Ok(())
 }
@@ -477,6 +629,8 @@ mod tests {
     use super::*;
     use std::{cell::Cell, io::Cursor};
 
+    use zip::{CompressionMethod, write::SimpleFileOptions};
+
     struct RecordingReporter(Cell<u64>);
     impl InstallReporter for RecordingReporter {
         fn download_advanced(&self, bytes: u64) {
@@ -495,11 +649,204 @@ mod tests {
         let digest = Digest::Sha256(hex::encode(Sha256::digest(bytes)));
         let reporter = RecordingReporter(Cell::new(0));
         let mut output = Vec::new();
-        let (_, verified, total) =
-            copy_and_hash(&mut Cursor::new(bytes), &mut output, &digest, &reporter).unwrap();
+        let (_, verified, total) = copy_and_hash(
+            &mut Cursor::new(bytes),
+            &mut output,
+            &digest,
+            &reporter,
+            bytes.len() as u64,
+        )
+        .unwrap();
         assert!(verified);
         assert_eq!(total, bytes.len() as u64);
         assert_eq!(reporter.0.get(), total);
         assert_eq!(output, bytes);
+    }
+
+    #[test]
+    fn download_limits_use_declared_size_and_an_absolute_ceiling() {
+        let limits = ResourceLimits {
+            max_download_bytes: 10,
+            ..test_limits()
+        };
+        assert_eq!(download_limit(0, limits).unwrap(), 10);
+        assert_eq!(download_limit(7, limits).unwrap(), 7);
+        assert!(download_limit(11, limits).is_err());
+
+        let bytes = b"sixteen-byte-data";
+        let digest = Digest::Sha256(hex::encode(Sha256::digest(bytes)));
+        let reporter = RecordingReporter(Cell::new(0));
+        let mut output = Vec::new();
+        let error = copy_and_hash(
+            &mut Cursor::new(bytes),
+            &mut output,
+            &digest,
+            &reporter,
+            (bytes.len() - 1) as u64,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("download exceeded safety limit"));
+        assert!(output.is_empty());
+        assert_eq!(reporter.0.get(), 0);
+    }
+
+    #[test]
+    fn archive_entry_count_is_bounded_before_extraction() {
+        let archive = make_archive(
+            &[("one", b"1".as_slice()), ("two", b"2".as_slice())],
+            CompressionMethod::Stored,
+        );
+        assert_archive_rejected(
+            &archive,
+            ResourceLimits {
+                max_archive_entries: 1,
+                ..test_limits()
+            },
+            "entries",
+        );
+    }
+
+    #[test]
+    fn archive_per_entry_and_total_sizes_are_bounded_before_extraction() {
+        let archive = make_archive(&[("one", b"1234".as_slice())], CompressionMethod::Stored);
+        assert_archive_rejected(
+            &archive,
+            ResourceLimits {
+                max_archive_entry_bytes: 3,
+                ..test_limits()
+            },
+            "per-entry safety limit",
+        );
+
+        let archive = make_archive(
+            &[("one", b"123".as_slice()), ("two", b"456".as_slice())],
+            CompressionMethod::Stored,
+        );
+        assert_archive_rejected(
+            &archive,
+            ResourceLimits {
+                max_archive_total_bytes: 5,
+                ..test_limits()
+            },
+            "expands to more than",
+        );
+    }
+
+    #[test]
+    fn archive_compression_ratio_is_bounded_before_extraction() {
+        let payload = vec![0; 4096];
+        let archive = make_archive(
+            &[("compressed", payload.as_slice())],
+            CompressionMethod::Deflated,
+        );
+        assert_archive_rejected(
+            &archive,
+            ResourceLimits {
+                max_archive_entry_bytes: 10_000,
+                max_archive_total_bytes: 10_000,
+                max_compression_ratio: 2,
+                ..test_limits()
+            },
+            "compression ratio safety limit",
+        );
+    }
+
+    #[test]
+    fn archive_path_depth_and_duplicate_outputs_are_bounded_before_extraction() {
+        let archive = make_archive(
+            &[("one/two/three/file", b"data".as_slice())],
+            CompressionMethod::Stored,
+        );
+        assert_archive_rejected(
+            &archive,
+            ResourceLimits {
+                max_path_depth: 3,
+                ..test_limits()
+            },
+            "path depth",
+        );
+
+        let archive = make_archive(
+            &[
+                ("duplicate/path", b"first".as_slice()),
+                ("duplicate//path", b"second".as_slice()),
+            ],
+            CompressionMethod::Stored,
+        );
+        assert_archive_rejected(&archive, test_limits(), "duplicate output path");
+    }
+
+    #[test]
+    fn extracted_bytes_must_match_bounded_archive_metadata() {
+        for (expected, message) in [(3, "extracted 4"), (5, "extracted 4")] {
+            let mut output = Vec::new();
+            let error = copy_exact_size(&mut Cursor::new(b"data"), &mut output, expected, "entry")
+                .unwrap_err();
+            assert!(error.to_string().contains(message));
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn archive_symlink_target_size_is_bounded_before_extraction() {
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+            zip.add_symlink("link", "long-target", SimpleFileOptions::default())
+                .unwrap();
+            zip.finish().unwrap();
+        }
+        assert_archive_rejected(
+            &cursor.into_inner(),
+            ResourceLimits {
+                max_symlink_target_bytes: 3,
+                ..test_limits()
+            },
+            "symlink target",
+        );
+    }
+
+    fn test_limits() -> ResourceLimits {
+        ResourceLimits {
+            max_download_bytes: 100,
+            max_archive_entries: 10,
+            max_archive_entry_bytes: 100,
+            max_archive_total_bytes: 100,
+            max_compression_ratio: 1_000,
+            max_path_depth: 10,
+            max_symlink_target_bytes: 100,
+        }
+    }
+
+    fn make_archive(entries: &[(&str, &[u8])], method: CompressionMethod) -> Vec<u8> {
+        let mut cursor = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+            for (name, contents) in entries {
+                zip.start_file(
+                    *name,
+                    SimpleFileOptions::default().compression_method(method),
+                )
+                .unwrap();
+                zip.write_all(contents).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        cursor.into_inner()
+    }
+
+    fn assert_archive_rejected(archive: &[u8], limits: ResourceLimits, expected: &str) {
+        let source = tempfile::NamedTempFile::new().unwrap();
+        fs::write(source.path(), archive).unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let error = match extract_zip_with_limits(source.path(), destination.path(), limits) {
+            Ok(()) => panic!("expected archive rejection for {expected}"),
+            Err(error) => error,
+        };
+        assert!(
+            format!("{error:#}").contains(expected),
+            "expected {expected:?} in {error:#}"
+        );
+        assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
     }
 }

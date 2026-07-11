@@ -6,7 +6,8 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use support::{
-    absolute_path_zip, fake_godot, godot_zip, missing_executable_zip, mock_release_server,
+    absolute_path_zip, duplicate_path_zip, excessive_depth_zip, fake_godot, godot_zip,
+    high_compression_ratio_zip, missing_executable_zip, mock_release_server,
     mock_release_server_with_size, mock_sha512_release_server, official_binary_path, sha256,
     sha512, traversal_zip, ug,
 };
@@ -291,6 +292,57 @@ fn advertised_download_size_mismatch_is_rejected() {
         fs::read_dir(root.path().join("downloads")).unwrap().count(),
         0
     );
+}
+
+#[test]
+fn download_stops_at_authoritative_size_and_cleans_up() {
+    let root = TempDir::new().unwrap();
+    let archive = godot_zip();
+    let server =
+        mock_release_server_with_size(archive.clone(), sha256(&archive), archive.len() as u64 - 1);
+    ug(root.path())
+        .args(["install", "4.7", "--api-base", &server.base_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("download exceeded safety limit"));
+    server.finish();
+    assert_eq!(
+        fs::read_dir(root.path().join("versions")).unwrap().count(),
+        0
+    );
+    assert_eq!(
+        fs::read_dir(root.path().join("downloads")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn archive_resource_policy_failures_leave_no_install() {
+    for (archive, expected) in [
+        (duplicate_path_zip(), "duplicate output path"),
+        (
+            high_compression_ratio_zip(),
+            "compression ratio safety limit",
+        ),
+        (excessive_depth_zip(), "path depth"),
+    ] {
+        let root = TempDir::new().unwrap();
+        let server = mock_release_server(archive.clone(), sha256(&archive));
+        ug(root.path())
+            .args(["install", "4.7", "--api-base", &server.base_url])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(expected));
+        server.finish();
+        assert_eq!(
+            fs::read_dir(root.path().join("versions")).unwrap().count(),
+            0
+        );
+        assert_eq!(
+            fs::read_dir(root.path().join("downloads")).unwrap().count(),
+            0
+        );
+    }
 }
 
 #[test]
