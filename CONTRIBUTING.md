@@ -24,7 +24,7 @@ Create a topic branch from the latest `origin/main`:
 
 ```sh
 git fetch origin
-git switch --create feat/ug-123-channel-aliases origin/main
+git switch --create feat/ug-123-channel-aliases --no-track origin/main
 ```
 
 Use `<type>/<short-kebab-summary>` or
