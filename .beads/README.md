@@ -4,6 +4,9 @@ This repository uses [`bd`](https://github.com/gastownhall/beads) for issue
 tracking. Issues are stored in a Dolt database and synchronized through the
 repository's `refs/dolt/data` ref.
 
+JSONL exports and interaction logs are local-only because they can contain
+issue-owner or contributor metadata. Do not commit them.
+
 After cloning the repository:
 
 ```sh

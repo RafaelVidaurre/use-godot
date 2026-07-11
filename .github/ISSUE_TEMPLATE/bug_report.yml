@@ -8,7 +8,7 @@ body:
     attributes:
       value: |
         Thanks for taking the time to report a bug. Do not include credentials,
-        tokens, or private paths. Report security issues using SECURITY.md.
+        tokens, or private paths.
   - type: checkboxes
     id: checks
     attributes:
@@ -17,8 +17,6 @@ body:
         - label: I searched existing issues for the same problem.
           required: true
         - label: I am using the latest released version of ug.
-          required: true
-        - label: This is not a security vulnerability.
           required: true
   - type: input
     id: version
