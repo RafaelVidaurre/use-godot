@@ -150,3 +150,53 @@ pub fn atomic_dir_commit(staging: PathBuf, destination: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directory_commit_never_overwrites_a_canonical_installation() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("canonical");
+        let staging = temp.path().join(".staging-interrupted");
+        fs::create_dir_all(&destination).unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(destination.join("manifest.json"), "original").unwrap();
+        fs::write(staging.join("manifest.json"), "partial").unwrap();
+
+        let error = atomic_dir_commit(staging.clone(), &destination).unwrap_err();
+        assert!(error.to_string().contains("destination already exists"));
+        assert_eq!(
+            fs::read_to_string(destination.join("manifest.json")).unwrap(),
+            "original"
+        );
+        assert_eq!(
+            fs::read_to_string(staging.join("manifest.json")).unwrap(),
+            "partial"
+        );
+    }
+
+    #[test]
+    fn directory_commit_publishes_the_complete_staging_tree_at_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let destination = temp.path().join("canonical");
+        let staging = temp.path().join(".staging-complete");
+        fs::create_dir_all(staging.join("payload")).unwrap();
+        fs::write(staging.join("manifest.json"), "complete").unwrap();
+        fs::write(staging.join("payload/godot"), "binary").unwrap();
+        assert!(!destination.exists());
+
+        atomic_dir_commit(staging.clone(), &destination).unwrap();
+
+        assert!(!staging.exists());
+        assert_eq!(
+            fs::read_to_string(destination.join("manifest.json")).unwrap(),
+            "complete"
+        );
+        assert_eq!(
+            fs::read_to_string(destination.join("payload/godot")).unwrap(),
+            "binary"
+        );
+    }
+}

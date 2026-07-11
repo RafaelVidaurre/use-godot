@@ -5,7 +5,10 @@ use std::fs;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-use support::{assert_shim_targets, fake_godot, shim_path, ug};
+use support::{
+    assert_shim_targets, fake_godot, godot_zip, paused_release_server, sha256, shim_path, ug,
+    ug_process,
+};
 
 #[test]
 fn variants_alias_default_exec_and_uninstall_are_end_to_end() {
@@ -139,6 +142,43 @@ fn activating_a_second_build_atomically_replaces_the_shim() {
     let second = which(root.path(), "4.8@double");
     assert_ne!(first, second);
     assert_shim_targets(root.path(), &second);
+}
+
+#[test]
+fn mutating_processes_are_serialized_by_the_state_lock() {
+    let root = TempDir::new().unwrap();
+    let archive = godot_zip();
+    let server = paused_release_server(archive.clone(), sha256(&archive));
+
+    let mut install = ug_process(root.path());
+    install
+        .args(["install", "4.7", "--api-base", &server.base_url])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let first = install.spawn().unwrap();
+    server.wait_until_catalog_requested();
+
+    let mut alias_set = ug_process(root.path());
+    alias_set
+        .args(["alias", "set", "serialized", "4.7"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut second = alias_set.spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(
+        second.try_wait().unwrap().is_none(),
+        "the second mutating process must wait for the state lock"
+    );
+
+    server.resume();
+    assert!(first.wait_with_output().unwrap().status.success());
+    assert!(second.wait_with_output().unwrap().status.success());
+    server.finish();
+    ug(root.path())
+        .args(["alias", "resolve", "serialized"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("4.7.0-stable@standard"));
 }
 
 #[test]
