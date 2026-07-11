@@ -6,6 +6,10 @@
   `godot` shim.
 - Separate shim activation from completion setup in the shell documentation.
 - Avoid rerunning zsh `compinit` when it is already loaded.
+- Reject official downloads and archives that exceed fixed resource ceilings
+  before publishing an installation.
+- Prevent canonical identity collisions when custom target components contain
+  delimiter characters.
 
 ## 0.1.1 - 2026-07-10
 
