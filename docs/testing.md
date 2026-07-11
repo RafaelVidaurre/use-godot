@@ -7,6 +7,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
 cargo build --release
+cargo package --locked --no-verify
 ```
 
 ## Test layers
@@ -24,12 +25,13 @@ Reusable process, executable, archive, and HTTP fixtures belong in
 `tests/support/`. Name tests after an observable behavior, not an implementation
 function.
 
-Every CLI test must use a temporary managed root. The shared command fixture also
-sets temporary `HOME` and XDG directories and removes inherited `UG_ROOT` and
-`UG_RELEASE_API` values. Tests must not read or write shell startup files,
-application directories, pre-existing version-manager state, or system command
-links. Platform-specific filesystem assertions must be guarded with `cfg`; shared
-behavior should remain runnable on every supported CI platform.
+Every CLI test must use a temporary managed root. The shared command fixture
+also sets temporary `HOME`, XDG, `LOCALAPPDATA`, and `USERPROFILE` directories
+and removes inherited `UG_ROOT` and `UG_RELEASE_API` values. Tests must not read
+or write shell startup files, application directories, pre-existing
+version-manager state, or system command links. Platform-specific filesystem
+assertions must be guarded with `cfg`; shared behavior should remain runnable on
+every supported CI platform.
 
 ## Coverage
 

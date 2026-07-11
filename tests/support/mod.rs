@@ -41,7 +41,17 @@ fn isolated_ug_process(environment_root: &Path, cwd: &Path) -> std::process::Com
     let config = environment.join("config");
     let data = environment.join("data");
     let cache = environment.join("cache");
-    for directory in [&home, &config, &data, &cache, cwd] {
+    let local_app_data = environment.join("local-app-data");
+    let user_profile = environment.join("user-profile");
+    for directory in [
+        &home,
+        &config,
+        &data,
+        &cache,
+        &local_app_data,
+        &user_profile,
+        cwd,
+    ] {
         fs::create_dir_all(directory).unwrap();
     }
 
@@ -53,6 +63,8 @@ fn isolated_ug_process(environment_root: &Path, cwd: &Path) -> std::process::Com
         .env("XDG_CONFIG_HOME", config)
         .env("XDG_DATA_HOME", data)
         .env("XDG_CACHE_HOME", cache)
+        .env("LOCALAPPDATA", local_app_data)
+        .env("USERPROFILE", user_profile)
         .current_dir(cwd);
     command
 }

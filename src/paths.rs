@@ -1,5 +1,6 @@
 use std::{
     env,
+    ffi::OsString,
     path::{Component, Path, PathBuf},
 };
 
@@ -17,9 +18,8 @@ impl Paths {
                 root: absolute_path(root)?,
             });
         }
-        let home = env::var_os("HOME").context("HOME is not set; pass --root or set UG_ROOT")?;
         Ok(Self {
-            root: absolute_path(PathBuf::from(home).join(".local/share/use-godot"))?,
+            root: absolute_path(default_root_for_host(|name| env::var_os(name))?)?,
         })
     }
 
@@ -73,6 +73,24 @@ impl Paths {
     }
 }
 
+fn default_root_for_host(get_var: impl Fn(&str) -> Option<OsString>) -> Result<PathBuf> {
+    default_root(get_var, cfg!(windows))
+}
+
+fn default_root(get_var: impl Fn(&str) -> Option<OsString>, windows: bool) -> Result<PathBuf> {
+    if windows {
+        if let Some(local_data) = get_var("LOCALAPPDATA") {
+            return Ok(PathBuf::from(local_data).join("use-godot"));
+        }
+        let profile = get_var("USERPROFILE")
+            .context("LOCALAPPDATA and USERPROFILE are not set; pass --root or set UG_ROOT")?;
+        return Ok(PathBuf::from(profile).join("AppData/Local/use-godot"));
+    }
+
+    let home = get_var("HOME").context("HOME is not set; pass --root or set UG_ROOT")?;
+    Ok(PathBuf::from(home).join(".local/share/use-godot"))
+}
+
 fn absolute_path(path: PathBuf) -> Result<PathBuf> {
     let path = if path.is_absolute() {
         path
@@ -101,6 +119,8 @@ fn absolute_path(path: PathBuf) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
@@ -109,5 +129,38 @@ mod tests {
         assert!(paths.root.is_absolute());
         assert!(paths.root.ends_with("managed"));
         assert!(!paths.root.to_string_lossy().contains(".."));
+    }
+
+    #[test]
+    fn unix_default_is_derived_from_home() {
+        let variables = HashMap::from([("HOME", OsString::from("/home/example"))]);
+        let root = default_root(|name| variables.get(name).cloned(), false).unwrap();
+        assert_eq!(root, PathBuf::from("/home/example/.local/share/use-godot"));
+    }
+
+    #[test]
+    fn windows_default_prefers_local_app_data() {
+        let variables = HashMap::from([
+            (
+                "LOCALAPPDATA",
+                OsString::from(r"C:\Users\example\AppData\Local"),
+            ),
+            ("USERPROFILE", OsString::from(r"C:\Users\example")),
+        ]);
+        let root = default_root(|name| variables.get(name).cloned(), true).unwrap();
+        assert_eq!(
+            root,
+            PathBuf::from(r"C:\Users\example\AppData\Local").join("use-godot")
+        );
+    }
+
+    #[test]
+    fn windows_default_falls_back_to_the_user_profile() {
+        let variables = HashMap::from([("USERPROFILE", OsString::from(r"C:\Users\example"))]);
+        let root = default_root(|name| variables.get(name).cloned(), true).unwrap();
+        assert_eq!(
+            root,
+            PathBuf::from(r"C:\Users\example").join("AppData/Local/use-godot")
+        );
     }
 }

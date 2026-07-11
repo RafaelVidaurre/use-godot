@@ -210,8 +210,9 @@ persistent setup.
 
 ## Storage and integrity
 
-The default data directory is `~/.local/share/use-godot`. Use `UG_ROOT` or
-`--root` for an isolated location:
+The default data directory is `~/.local/share/use-godot` on macOS and Linux,
+and `%LOCALAPPDATA%\use-godot` on Windows. Use `UG_ROOT` or `--root` for an
+isolated location:
 
 ```sh
 UG_ROOT=/path/to/root ug list
