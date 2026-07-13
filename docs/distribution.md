@@ -85,8 +85,18 @@ irm https://github.com/RafaelVidaurre/use-godot/releases/latest/download/use-god
 ```
 
 Homebrew formulas include macOS and Linux target branches. The post-release
-workflow normalizes the formula once, then runs `brew style`, strict online
-audit, installation, and `brew test` on macOS arm64 and Linux x86_64.
+workflow pins the formula's explicit version from the cargo-dist release plan,
+normalizes the formula once, then runs `brew style`, strict online audit,
+installation, and `brew test` on macOS arm64 and Linux x86_64. The explicit
+version prevents Homebrew from interpreting a target triple in an archive name
+as the package version.
+
+To recover a published tap formula without moving or replacing a release tag,
+dispatch the audit workflow from `main` with the existing release version:
+
+```sh
+gh workflow run homebrew-audit.yml --ref main -f version=X.Y.Z
+```
 
 The tap credential is stored as the `HOMEBREW_TAP_TOKEN` repository secret and
 must have write access to the tap repository.

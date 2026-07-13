@@ -7,6 +7,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all-targets --locked
 cargo build --release --locked
+python3 scripts/test-normalize-homebrew-formula.py
 python3 scripts/render-release-installers.py --output-dir target/distrib
 shellcheck scripts/*.sh target/distrib/use-godot-installer.sh
 python3 scripts/smoke-release-installers.py
