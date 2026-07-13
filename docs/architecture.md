@@ -106,12 +106,12 @@ is emitted to standard output and never assumes or edits a startup file.
 
 ## Portability boundaries
 
-The core and release mapping include macOS, Linux, and Windows naming, and
-native CI exercises the CLI and managed shim on all three systems. Published
-0.1 releases still target Apple Silicon macOS only; a platform is not presented
-as supported until its installer and release artifact also have native smoke
-coverage. Shell integration is generated for zsh, bash, and fish from one
-command model; standalone completions support additional shells.
+The core and release mapping include macOS, Linux, and Windows naming. Native CI
+exercises the CLI, managed shim, release-mode binary, and standalone installer
+on macOS arm64/x86_64, glibc Linux arm64/x86_64, and Windows x86_64. Platforms
+outside that matrix are rejected by the installer rather than receiving an
+untested archive. Shell integration is generated for zsh, bash, and fish from
+one command model; standalone completions support additional shells.
 
 ## One-shot execution
 

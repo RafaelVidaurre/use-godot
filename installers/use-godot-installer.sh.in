@@ -1,0 +1,135 @@
+#!/bin/sh
+# shellcheck shell=sh
+
+set -eu
+
+VERSION="@@VERSION@@"
+REPOSITORY="RafaelVidaurre/use-godot"
+BASE_URL=${UG_INSTALLER_BASE_URL:-"https://github.com/$REPOSITORY/releases/download/v$VERSION"}
+BASE_URL=${BASE_URL%/}
+temporary_root=
+temporary_destination=
+
+fail() {
+    printf 'ug installer: %s\n' "$*" >&2
+    exit 1
+}
+
+cleanup() {
+    if [ -n "$temporary_destination" ]; then
+        rm -f "$temporary_destination"
+    fi
+    if [ -n "$temporary_root" ]; then
+        rm -rf "$temporary_root"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+
+case "$BASE_URL" in
+    https://*) ;;
+    http://127.0.0.1:* | http://localhost:*) ;;
+    *) fail "UG_INSTALLER_BASE_URL must use HTTPS" ;;
+esac
+
+download() {
+    source_url=$1
+    destination=$2
+    if command -v curl >/dev/null 2>&1; then
+        curl --proto '=https,http' --tlsv1.2 --fail --location --silent \
+            --show-error --output "$destination" "$source_url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --https-only --quiet --output-document="$destination" "$source_url"
+    else
+        fail "curl or wget is required"
+    fi
+}
+
+sha256_file() {
+    file=$1
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$file" | awk '{print $NF}'
+    else
+        fail "sha256sum, shasum, or openssl is required for verification"
+    fi
+}
+
+system=$(uname -s)
+machine=$(uname -m)
+case "$system:$machine" in
+    Darwin:arm64 | Darwin:aarch64)
+        target=aarch64-apple-darwin
+        ;;
+    Darwin:x86_64 | Darwin:amd64)
+        target=x86_64-apple-darwin
+        ;;
+    Linux:aarch64 | Linux:arm64)
+        target=aarch64-unknown-linux-gnu
+        ;;
+    Linux:x86_64 | Linux:amd64)
+        target=x86_64-unknown-linux-gnu
+        ;;
+    Linux:*)
+        fail "unsupported Linux architecture '$machine'; supported: x86_64, arm64"
+        ;;
+    *)
+        fail "unsupported platform '$system/$machine'; use the PowerShell installer on Windows"
+        ;;
+esac
+
+if [ "$system" = Linux ]; then
+    libc_description=$(ldd --version 2>&1 || true)
+    case "$libc_description" in
+        *GLIBC* | *glibc* | *"GNU libc"* | *"GNU C Library"*) ;;
+        *) fail "Linux release binaries require glibc; musl and unknown libc systems are unsupported" ;;
+    esac
+fi
+
+if [ -n "${UG_BIN_DIR:-}" ]; then
+    install_dir=$UG_BIN_DIR
+elif [ -n "${HOME:-}" ]; then
+    install_dir=$HOME/.local/bin
+else
+    fail "HOME or UG_BIN_DIR must be set"
+fi
+
+archive="use-godot-$target.tar.xz"
+checksum="$archive.sha256"
+temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/ug-installer.XXXXXX")
+
+printf 'Downloading ug %s for %s\n' "$VERSION" "$target"
+download "$BASE_URL/$archive" "$temporary_root/$archive"
+download "$BASE_URL/$checksum" "$temporary_root/$checksum"
+
+expected=$(awk 'NR == 1 { print $1 }' "$temporary_root/$checksum")
+case "$expected" in
+    '' | *[!0-9A-Fa-f]*) fail "release checksum is malformed" ;;
+esac
+[ "${#expected}" -eq 64 ] || fail "release checksum is malformed"
+
+actual=$(sha256_file "$temporary_root/$archive")
+expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+actual=$(printf '%s' "$actual" | tr 'A-F' 'a-f')
+[ "$actual" = "$expected" ] || fail "SHA-256 verification failed for $archive"
+
+mkdir -p "$temporary_root/unpacked"
+tar -xJf "$temporary_root/$archive" -C "$temporary_root/unpacked"
+source_binary="$temporary_root/unpacked/use-godot-$target/ug"
+[ -f "$source_binary" ] || fail "verified archive does not contain ug"
+
+mkdir -p "$install_dir"
+destination="$install_dir/ug"
+temporary_destination=$(mktemp "$install_dir/.ug.tmp.XXXXXX")
+cp "$source_binary" "$temporary_destination"
+chmod 755 "$temporary_destination"
+mv -f "$temporary_destination" "$destination"
+temporary_destination=
+
+printf 'Installed %s\n' "$destination"
+case ":${PATH:-}:" in
+    *:"$install_dir":*) ;;
+    *) printf 'Add %s to PATH when you want to run ug by name.\n' "$install_dir" ;;
+esac
