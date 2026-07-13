@@ -11,8 +11,8 @@ on:
         required: true
 
 jobs:
-  audit:
-    runs-on: macos-15
+  normalize:
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out tap
         uses: actions/checkout@v6
@@ -23,7 +23,12 @@ jobs:
       - name: Normalize generated formula
         shell: bash
         run: |
+          # Ruby interpolation is intentionally preserved.
+          # shellcheck disable=SC2016
           ruby -0pi -e 'gsub(/^  version "[^"]+"\n/, "")' Formula/ug.rb
+          # shellcheck disable=SC2016
+          ruby -0pi -e 'sub(/^class Ug < Formula$/, "# Formula for the ug Godot version manager.\nclass Ug < Formula") unless $_.include?("# Formula for the ug Godot version manager.\n")' Formula/ug.rb
+          # shellcheck disable=SC2016
           ruby -0pi -e 'sub(/\nend\n\z/, "\n\n  test do\n    assert_match \"ug \#{version}\", shell_output(\"\#{bin}/ug --version\")\n  end\nend\n") unless $_.include?("  test do\n")' Formula/ug.rb
 
           if ! git diff --quiet; then
@@ -33,7 +38,39 @@ jobs:
             git commit -m "chore: audit ug Homebrew formula"
           fi
 
-      - name: Audit formula
+      - name: Publish normalized formula
+        shell: bash
+        run: |
+          git push
+
+  audit:
+    needs: normalize
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+          - name: Linux x86_64
+            os: ubuntu-24.04
+    name: audit (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@v6
+        with:
+          repository: RafaelVidaurre/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Select Linuxbrew
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          test -x /home/linuxbrew/.linuxbrew/bin/brew
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+          echo "/home/linuxbrew/.linuxbrew/sbin" >> "$GITHUB_PATH"
+
+      - name: Audit and test formula
         shell: bash
         run: |
           brew tap --custom-remote RafaelVidaurre/tap "$GITHUB_WORKSPACE"
@@ -42,8 +79,3 @@ jobs:
           brew audit --strict --online RafaelVidaurre/tap/ug
           brew install RafaelVidaurre/tap/ug
           brew test RafaelVidaurre/tap/ug
-
-      - name: Publish normalized formula
-        shell: bash
-        run: |
-          git push

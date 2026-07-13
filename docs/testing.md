@@ -4,11 +4,20 @@ Run the complete local gate:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
-cargo build --release
+cargo clippy --all-targets --all-features --locked -- -D warnings
+cargo test --all-targets --locked
+cargo build --release --locked
+python3 scripts/render-release-installers.py --output-dir target/distrib
+shellcheck scripts/*.sh target/distrib/use-godot-installer.sh
+python3 scripts/smoke-release-installers.py
+dist generate --check
 cargo package --locked --no-verify
 ```
+
+Use the `dist` version pinned in `dist-workspace.toml`. Rendering and installer
+smoke tests write only below `target/` and temporary directories. The smoke test
+uses temporary `HOME`, `LOCALAPPDATA`, `USERPROFILE`, managed-root, and install
+paths; it never changes live profiles, the Windows user PATH, or system links.
 
 ## Test layers
 
@@ -32,6 +41,13 @@ or write shell startup files, application directories, pre-existing
 version-manager state, or system command links. Platform-specific filesystem
 assertions must be guarded with `cfg`; shared behavior should remain runnable on
 every supported CI platform.
+
+CI runs these tests natively on Linux x86_64, Linux arm64, macOS Apple Silicon,
+macOS Intel, and Windows x86_64. Each runner also builds the release binary and
+runs `scripts/smoke-release-installers.py`. That smoke installs twice to cover
+atomic replacement, runs `ug --version`, performs a fixture-backed local
+install/use/which flow, checks `doctor`, and proves that a corrupt archive cannot
+replace the verified executable.
 
 ## Coverage
 

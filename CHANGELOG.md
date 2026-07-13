@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 - 2026-07-13
+
+- Publish checksummed native archives for macOS arm64/x86_64, glibc Linux
+  arm64/x86_64, and Windows x86_64.
+- Add non-invasive shell and PowerShell release installers with neutral default
+  paths, SHA-256 verification, and atomic executable replacement.
+- Build and smoke-test the full platform matrix on native GitHub-hosted runners
+  before merge, including fixture-backed install/use and recovery checks.
+- Generate Homebrew branches for supported macOS and Linux targets and audit
+  the published formula on both platforms.
+- Remove the premature code-of-conduct and contribution-process documents.
+
 ## 0.1.2 - 2026-07-11
 
 - Add `ug shell path` for explicit, shell-neutral access to the managed

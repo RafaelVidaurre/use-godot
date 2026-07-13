@@ -1,0 +1,115 @@
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$Version = "@@VERSION@@"
+$Repository = "RafaelVidaurre/use-godot"
+$BaseUrl = if ($env:UG_INSTALLER_BASE_URL) {
+    $env:UG_INSTALLER_BASE_URL.TrimEnd("/")
+} else {
+    "https://github.com/$Repository/releases/download/v$Version"
+}
+
+if (
+    -not $BaseUrl.StartsWith("https://", [System.StringComparison]::OrdinalIgnoreCase) -and
+    $BaseUrl -notmatch '^http://(127\.0\.0\.1|localhost)(:\d+)?(?:/|$)'
+) {
+    throw "ug installer: UG_INSTALLER_BASE_URL must use HTTPS"
+}
+
+$Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+if ($Architecture -ne "X64") {
+    throw "ug installer: unsupported Windows architecture '$Architecture'; supported: x86_64"
+}
+$Target = "x86_64-pc-windows-msvc"
+
+if ($env:UG_BIN_DIR) {
+    $InstallDir = $env:UG_BIN_DIR
+} elseif ($env:LOCALAPPDATA) {
+    $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\ug\bin"
+} elseif ($HOME) {
+    $InstallDir = Join-Path $HOME ".local\bin"
+} else {
+    throw "ug installer: LOCALAPPDATA, HOME, or UG_BIN_DIR must be set"
+}
+
+$Archive = "use-godot-$Target.zip"
+$Checksum = "$Archive.sha256"
+$TemporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ug-installer-" + [guid]::NewGuid())
+$ArchivePath = Join-Path $TemporaryRoot $Archive
+$ChecksumPath = Join-Path $TemporaryRoot $Checksum
+$Unpacked = Join-Path $TemporaryRoot "unpacked"
+
+function Install-Atomically {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $Directory = Split-Path -Parent $Destination
+    $TemporaryDestination = Join-Path $Directory (".ug.exe.tmp." + [guid]::NewGuid())
+    $Backup = Join-Path $Directory (".ug.exe.backup." + [guid]::NewGuid())
+    Copy-Item -LiteralPath $Source -Destination $TemporaryDestination
+
+    try {
+        if (Test-Path -LiteralPath $Destination) {
+            [System.IO.File]::Replace($TemporaryDestination, $Destination, $Backup, $true)
+            Remove-Item -LiteralPath $Backup -Force
+        } else {
+            [System.IO.File]::Move($TemporaryDestination, $Destination)
+        }
+    } catch {
+        if (Test-Path -LiteralPath $Backup) {
+            if (Test-Path -LiteralPath $Destination) {
+                Remove-Item -LiteralPath $Destination -Force
+            }
+            [System.IO.File]::Move($Backup, $Destination)
+        }
+        throw
+    } finally {
+        if (Test-Path -LiteralPath $TemporaryDestination) {
+            Remove-Item -LiteralPath $TemporaryDestination -Force
+        }
+        if (Test-Path -LiteralPath $Backup) {
+            Remove-Item -LiteralPath $Backup -Force
+        }
+    }
+}
+
+try {
+    New-Item -ItemType Directory -Path $TemporaryRoot | Out-Null
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+    Write-Output "Downloading ug $Version for $Target"
+    Invoke-WebRequest -Uri "$BaseUrl/$Archive" -OutFile $ArchivePath
+    Invoke-WebRequest -Uri "$BaseUrl/$Checksum" -OutFile $ChecksumPath
+
+    $Expected = ((Get-Content -LiteralPath $ChecksumPath -Raw).Trim() -split '\s+')[0]
+    if ($Expected -notmatch '^[0-9A-Fa-f]{64}$') {
+        throw "ug installer: release checksum is malformed"
+    }
+    $Actual = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+    if ($Actual -ne $Expected) {
+        throw "ug installer: SHA-256 verification failed for $Archive"
+    }
+
+    New-Item -ItemType Directory -Path $Unpacked | Out-Null
+    Expand-Archive -LiteralPath $ArchivePath -DestinationPath $Unpacked
+    $SourceBinary = Join-Path $Unpacked "ug.exe"
+    if (-not (Test-Path -LiteralPath $SourceBinary -PathType Leaf)) {
+        throw "ug installer: verified archive does not contain ug.exe"
+    }
+
+    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    $Destination = Join-Path $InstallDir "ug.exe"
+    Install-Atomically -Source $SourceBinary -Destination $Destination
+
+    Write-Output "Installed $Destination"
+    $PathEntries = $env:PATH -split [System.IO.Path]::PathSeparator
+    if ($InstallDir -notin $PathEntries) {
+        Write-Output "Add $InstallDir to PATH when you want to run ug by name."
+    }
+} finally {
+    if (Test-Path -LiteralPath $TemporaryRoot) {
+        Remove-Item -LiteralPath $TemporaryRoot -Recurse -Force
+    }
+}
