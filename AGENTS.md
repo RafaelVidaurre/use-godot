@@ -45,7 +45,7 @@ says a session is incomplete until changes or issue data are pushed.
 - All changes to `main` go through a pull request and use GitHub's rebase-merge
   option so history remains linear. Address review comments and wait for
   required checks before merging.
-- Run the local gates in `CONTRIBUTING.md` before requesting review.
+- Run the complete local gate in `docs/testing.md` before requesting review.
 
 Agents operate locally by default. Unless the user explicitly authorizes the
 specific remote action in the current request, agents must not push Git refs or
