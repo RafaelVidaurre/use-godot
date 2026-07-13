@@ -44,7 +44,7 @@ class NormalizeHomebrewFormulaTests(unittest.TestCase):
             text=True,
         )
 
-    def test_inserts_explicit_version_comment_and_test(self) -> None:
+    def test_inserts_linux_version_comment_and_test(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             formula = Path(directory) / "ug.rb"
             formula.write_text(GENERATED_FORMULA, encoding="utf-8")
@@ -55,7 +55,7 @@ class NormalizeHomebrewFormulaTests(unittest.TestCase):
             normalized = formula.read_text(encoding="utf-8")
             self.assertIn(
                 '  homepage "https://github.com/RafaelVidaurre/use-godot"\n'
-                '  version "0.2.0"\n',
+                '  version "0.2.0" if OS.linux?\n',
                 normalized,
             )
             self.assertTrue(
@@ -88,7 +88,9 @@ class NormalizeHomebrewFormulaTests(unittest.TestCase):
 
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(formula.read_bytes(), once)
-            self.assertEqual(once.count(b'  version "0.2.0"\n'), 1)
+            self.assertEqual(
+                once.count(b'  version "0.2.0" if OS.linux?\n'), 1
+            )
             self.assertNotIn(b'  version "0.1.0"\n', once)
 
     def test_invalid_version_fails_without_modifying_formula(self) -> None:
