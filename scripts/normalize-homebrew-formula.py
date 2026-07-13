@@ -19,7 +19,9 @@ SEMVER = re.compile(
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
 )
-VERSION_LINE = re.compile(r'^  version "[^"\n]+"\n', re.MULTILINE)
+VERSION_LINE = re.compile(
+    r'^  version "[^"\n]+"(?: if OS\.linux\?)?\n', re.MULTILINE
+)
 HOMEPAGE_LINE = re.compile(r'^  homepage "[^"\n]+"\n', re.MULTILINE)
 CLASS_LINE = "class Ug < Formula"
 FORMULA_COMMENT = "# Formula for the ug Godot version manager."
@@ -47,7 +49,7 @@ def normalize(contents: str, version: str) -> str:
     contents = contents.replace(f"{FORMULA_COMMENT}\n", "")
     contents = contents.replace(CLASS_LINE, f"{FORMULA_COMMENT}\n{CLASS_LINE}")
     contents, replacements = HOMEPAGE_LINE.subn(
-        lambda match: f'{match.group(0)}  version "{version}"\n',
+        lambda match: f'{match.group(0)}  version "{version}" if OS.linux?\n',
         contents,
         count=1,
     )
