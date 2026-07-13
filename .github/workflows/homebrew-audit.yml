@@ -6,30 +6,59 @@ on:
       plan:
         required: true
         type: string
+      version:
+        required: false
+        type: string
+        default: ""
     secrets:
       HOMEBREW_TAP_TOKEN:
         required: true
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: Optional cargo-dist plan JSON
+        required: false
+        type: string
+        default: ""
+      version:
+        description: Release version to normalize and audit
+        required: true
+        type: string
 
 jobs:
   normalize:
     runs-on: ubuntu-24.04
     steps:
+      - name: Check out release tooling
+        uses: actions/checkout@v6
+        with:
+          path: use-godot
+
       - name: Check out tap
         uses: actions/checkout@v6
         with:
           repository: RafaelVidaurre/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
 
       - name: Normalize generated formula
         shell: bash
+        working-directory: homebrew-tap
+        env:
+          DIST_PLAN: ${{ inputs.plan }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          # Ruby interpolation is intentionally preserved.
-          # shellcheck disable=SC2016
-          ruby -0pi -e 'gsub(/^  version "[^"]+"\n/, "")' Formula/ug.rb
-          # shellcheck disable=SC2016
-          ruby -0pi -e 'sub(/^class Ug < Formula$/, "# Formula for the ug Godot version manager.\nclass Ug < Formula") unless $_.include?("# Formula for the ug Godot version manager.\n")' Formula/ug.rb
-          # shellcheck disable=SC2016
-          ruby -0pi -e 'sub(/\nend\n\z/, "\n\n  test do\n    assert_match \"ug \#{version}\", shell_output(\"\#{bin}/ug --version\")\n  end\nend\n") unless $_.include?("  test do\n")' Formula/ug.rb
+          version="$RELEASE_VERSION"
+          if [[ -z "$version" ]]; then
+            version="$(jq -er '
+              [.releases[].app_version] | unique |
+              if length == 1 then .[0] else error("ambiguous release versions") end
+            ' <<<"$DIST_PLAN")"
+          fi
+
+          python3 ../use-godot/scripts/normalize-homebrew-formula.py \
+            --formula Formula/ug.rb \
+            --version "$version"
 
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
@@ -40,6 +69,7 @@ jobs:
 
       - name: Publish normalized formula
         shell: bash
+        working-directory: homebrew-tap
         run: |
           git push
 

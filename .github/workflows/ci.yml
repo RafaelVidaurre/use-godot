@@ -35,6 +35,7 @@ jobs:
       - name: Validate release installer sources
         shell: bash
         run: |
+          python3 scripts/test-normalize-homebrew-formula.py
           python3 scripts/render-release-installers.py --output-dir "$RUNNER_TEMP/installers"
           shellcheck scripts/*.sh "$RUNNER_TEMP/installers/use-godot-installer.sh"
       - name: Validate the published source package
