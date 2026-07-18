@@ -85,6 +85,29 @@ ug which                  # path to that binary
 ug exec 4.7 -- --version  # run Godot without switching
 ```
 
+### Tolerate known exit noise (opt-in)
+
+Some Godot builds abort with a known, consequence-free stack-canary / teardown
+signal that still returns non-zero and can trip `set -e` / CI. `ug` can wrap
+those runs and rewrite **only** matched exits to `0`. Default is **off**;
+legitimate crashes keep normal exit codes and crash UI.
+
+```sh
+# one shot
+ug --tolerate-exit-noise exec -- --path myproj --quit
+
+# default on for this machine (toggle anytime)
+ug config set tolerate-exit-noise true
+ug config set tolerate-exit-noise false
+
+# env override (CI)
+UG_TOLERATE_EXIT_NOISE=1 ug exec -- --quit
+UG_TOLERATE_EXIT_NOISE=0 ug exec -- --quit   # force off
+```
+
+Precedence: CLI flags > `UG_TOLERATE_EXIT_NOISE` > `config.json` > off.
+`ug` never injects `--disable-crash-handler` or mutes OS crash dialogs.
+
 Want the editor as plain `godot`? Put the managed shim on your `PATH` (optional;
 `ug exec` always works without this):
 

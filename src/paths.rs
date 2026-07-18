@@ -29,6 +29,9 @@ impl Paths {
     pub fn state(&self) -> PathBuf {
         self.root.join("state.json")
     }
+    pub fn config(&self) -> PathBuf {
+        self.root.join("config.json")
+    }
     pub fn lock(&self) -> PathBuf {
         self.root.join("state.lock")
     }

@@ -122,3 +122,13 @@ control. Windows has no equivalent process-replacement primitive, so `ug exec`
 starts Godot, waits, and returns its exit status. This Windows parent process is
 the portability cost of preserving synchronous command and exit-code behavior;
 normal `godot.exe` shim use remains a direct hard link there as well.
+
+### Exit-noise tolerance (opt-in)
+
+When `tolerate-exit-noise` is enabled (CLI `--tolerate-exit-noise`, env
+`UG_TOLERATE_EXIT_NOISE`, or `config.json`), `ug exec` **wraps** Godot as a child
+on all platforms, applies built-in fail-closed rules to the wait status, and may
+rewrite a matched known false-crash exit to `0`. Default is **off**; unmatched
+exits and crash presentation (Godot crash handler, OS Problem Report) are
+unchanged. Preferences live in `$UG_ROOT/config.json` (`ug config get|set`),
+separate from `state.json`. See `docs/designs/tolerate-exit-noise.md`.

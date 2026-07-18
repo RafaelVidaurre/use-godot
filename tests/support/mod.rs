@@ -59,6 +59,9 @@ fn isolated_ug_process(environment_root: &Path, cwd: &Path) -> std::process::Com
     command
         .env_remove("UG_ROOT")
         .env_remove("UG_RELEASE_API")
+        .env_remove("UG_TOLERATE_EXIT_NOISE")
+        .env_remove("UG_EXIT_NOISE_EXPERIMENTAL")
+        .env_remove("UG_EXIT_NOISE_DEBUG")
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", config)
         .env("XDG_DATA_HOME", data)
@@ -141,6 +144,36 @@ pub fn fake_godot_reporting_pid(temp: &TempDir, name: &str) -> PathBuf {
 
     let path = temp.path().join(name);
     fs::write(&path, "#!/bin/sh\nprintf '%s\\n' \"$$\"\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Fake Godot that exits by raising `signal` (e.g. 6 = SIGABRT).
+#[cfg(unix)]
+pub fn fake_godot_signal(temp: &TempDir, name: &str, signal: i32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = temp.path().join(name);
+    fs::write(
+        &path,
+        format!("#!/bin/sh\nkill -s {signal} $$\n"),
+    )
+    .unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path
+}
+
+/// Fake Godot that prints its PID then exits by raising `signal`.
+#[cfg(unix)]
+pub fn fake_godot_reporting_pid_then_signal(temp: &TempDir, name: &str, signal: i32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = temp.path().join(name);
+    fs::write(
+        &path,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$$\"\nkill -s {signal} $$\n"),
+    )
+    .unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
