@@ -3,18 +3,20 @@ use std::{
     env, fs,
     io::{self, IsTerminal},
     path::PathBuf,
-    process::{Command, ExitCode},
+    process::{ExitCode},
     time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use use_godot::{
     Paths, State, Variant,
     atomic::StateLock,
+    config::{self, CliPolicyOverrides, UserConfig},
+    exec,
     install::{self, InstallOptions, InstallReporter},
     project,
     remote::ReleaseCatalog,
@@ -34,6 +36,12 @@ struct Cli {
     /// Suppress routine human-readable output and progress.
     #[arg(short, long, global = true)]
     quiet: bool,
+    /// Wrap Godot and tolerate known exit noise (overrides config / env when set).
+    #[arg(long, global = true, action = ArgAction::SetTrue, overrides_with = "no_tolerate_exit_noise")]
+    tolerate_exit_noise: bool,
+    /// Disable exit-noise tolerance for this invocation.
+    #[arg(long, global = true, action = ArgAction::SetTrue, overrides_with = "tolerate_exit_noise")]
+    no_tolerate_exit_noise: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -123,10 +131,33 @@ enum Commands {
     },
     /// Diagnose managed state.
     Doctor,
+    /// Show or change user configuration (e.g. tolerate-exit-noise).
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     /// Show or emit optional shell integration.
     Shell {
         #[command(subcommand)]
         command: ShellCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigCommand {
+    /// Print the config.json path.
+    Path,
+    /// Print configured values (file + defaults). Use --effective for env-applied policy.
+    Get {
+        #[arg(long)]
+        effective: bool,
+    },
+    /// Set a boolean preference (kebab-case key).
+    Set {
+        /// Key: tolerate-exit-noise | experimental-exit-noise-rules
+        key: String,
+        /// true/false, 1/0, yes/no, on/off
+        value: String,
     },
 }
 
@@ -186,6 +217,15 @@ fn run(cli: Cli) -> Result<u8> {
     let flags = OutputFlags {
         json: cli.json,
         quiet: cli.quiet,
+    };
+    let policy_cli = CliPolicyOverrides {
+        tolerate_exit_noise: if cli.tolerate_exit_noise {
+            Some(true)
+        } else if cli.no_tolerate_exit_noise {
+            Some(false)
+        } else {
+            None
+        },
     };
     match cli.command {
         Commands::Install {
@@ -354,8 +394,12 @@ fn run(cli: Cli) -> Result<u8> {
             let state = State::load(&paths)?;
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
-            return execute(&item.binary, &args);
+            let user_config = UserConfig::load(&paths)?;
+            let policy =
+                config::resolve_exit_noise_policy(policy_cli, &user_config, flags.quiet)?;
+            return exec::run_godot(&item.binary, &args, policy);
         }
+        Commands::Config { command } => config_command(flags, &paths, policy_cli, command)?,
         Commands::Pin { selector } => {
             let directory = env::current_dir().context("read current directory")?;
             let path = project::pin(&directory, &selector)?;
@@ -375,29 +419,83 @@ fn run(cli: Cli) -> Result<u8> {
     Ok(0)
 }
 
-#[cfg(unix)]
-fn execute(binary: &std::path::Path, args: &[String]) -> Result<u8> {
-    use std::os::unix::process::CommandExt;
-
-    let mut command = Command::new(binary);
-    command.args(args);
-    let error = command.exec();
-    Err(error).with_context(|| format!("execute {}", binary.display()))
-}
-
-#[cfg(not(unix))]
-fn execute(binary: &std::path::Path, args: &[String]) -> Result<u8> {
-    let status = Command::new(binary)
-        .args(args)
-        .status()
-        .with_context(|| format!("execute {}", binary.display()))?;
-    Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
-}
-
 #[derive(Clone, Copy)]
 struct OutputFlags {
     json: bool,
     quiet: bool,
+}
+
+fn config_command(
+    flags: OutputFlags,
+    paths: &Paths,
+    policy_cli: CliPolicyOverrides,
+    command: ConfigCommand,
+) -> Result<()> {
+    match command {
+        ConfigCommand::Path => {
+            if flags.json {
+                let mut value = BTreeMap::new();
+                value.insert("path", paths.config().display().to_string());
+                print_json(&value)?;
+            } else {
+                println!("{}", paths.config().display());
+            }
+        }
+        ConfigCommand::Get { effective } => {
+            let configured = UserConfig::load(paths)?;
+            if flags.json {
+                let mut root = serde_json::Map::new();
+                root.insert(
+                    "configured".into(),
+                    serde_json::to_value(&configured).context("serialize config")?,
+                );
+                root.insert(
+                    "path".into(),
+                    serde_json::Value::String(paths.config().display().to_string()),
+                );
+                if effective {
+                    let policy =
+                        config::resolve_exit_noise_policy(policy_cli, &configured, flags.quiet)?;
+                    root.insert(
+                        "effective".into(),
+                        serde_json::json!({
+                            "tolerate_exit_noise": policy.tolerate,
+                            "allow_experimental_rules": policy.allow_experimental_rules,
+                        }),
+                    );
+                }
+                print_json(&root)?;
+            } else if !flags.quiet {
+                println!("tolerate-exit-noise: {}", configured.tolerate_exit_noise);
+                println!(
+                    "experimental-exit-noise-rules: {}",
+                    configured.experimental_exit_noise_rules
+                );
+                if effective {
+                    let policy =
+                        config::resolve_exit_noise_policy(policy_cli, &configured, flags.quiet)?;
+                    println!("effective tolerate-exit-noise: {}", policy.tolerate);
+                    println!(
+                        "effective experimental-exit-noise-rules: {}",
+                        policy.allow_experimental_rules
+                    );
+                }
+            }
+        }
+        ConfigCommand::Set { key, value } => {
+            let _lock = lock(paths)?;
+            let mut configured = UserConfig::load(paths)?;
+            let parsed = config::parse_config_bool_value(&value)?;
+            config::set_config_bool(&mut configured, &key, parsed)?;
+            configured.save(paths)?;
+            if flags.json {
+                print_json(&configured)?;
+            } else if !flags.quiet {
+                println!("set {key} = {parsed}");
+            }
+        }
+    }
+    Ok(())
 }
 
 struct CliInstallProgress {
