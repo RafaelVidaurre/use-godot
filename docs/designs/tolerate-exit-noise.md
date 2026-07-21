@@ -5,9 +5,25 @@
 | **Document** | Tolerate known Godot exit noise (false crash filter) |
 | **Author** | TBD |
 | **Date** | 2026-07-18 |
-| **Status** | Draft (rev 7 — primary target: stack_chk / libeosg bind abort; exit-code only) |
+| **Status** | Partially implemented (rev 8) |
 | **Issue** | `ug-dzk` |
 | **Audience** | Implementers of `ug` (use-godot) |
+
+### Shipped vs deferred
+
+| Area | Status |
+| --- | --- |
+| Opt-in wrap for `ug exec` only | **Shipped** |
+| CLI / env / machine `$UG_ROOT/ug.toml` / project `ug.toml` chain | **Shipped** |
+| Legacy `config.json` → `ug.toml` migration (locked config cmds) | **Shipped** |
+| Stable rules: headless SIGABRT+`--quit*`; stack-chk+PID correlator | **Shipped** |
+| Multi-call managed runtime / shim rebind on `config set` | **Deferred** |
+| Unix signal forwarding wrapper → Godot | **Deferred** |
+| Doctor config↔shim checks | **Deferred** |
+| `godot` shim mediation when tolerate is on | **Deferred** (shim remains direct link) |
+
+Treat README and `docs/architecture.md` as source of truth for shipped behavior;
+sections below that describe multi-call runtime remain design intent for follow-ups.
 
 ---
 

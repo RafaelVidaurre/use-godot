@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+- Opt-in tolerate known Godot exit noise for `ug exec` (wrap + fail-closed rules).
 - Add hierarchical project settings via `ug.toml` (child overrides parent) layered
   over machine `$UG_ROOT/ug.toml`, with CLI/env still winning for exit-noise policy.
 - Store machine defaults as `ug.toml` (same keys as project files); migrate legacy
-  `$UG_ROOT/config.json` on load/save.
+  `$UG_ROOT/config.json` under the state lock on config commands.
+- Map Windows process statuses by low byte so NTSTATUS crashes never become exit 0.
+- Require PID match for macOS crash-report correlation; document deferred
+  multi-call/signal-forwarding work.
 - Keep `.ugrc` as the version pin only; surface project sources on
   `ug config get` / `ug config get --effective`.
 

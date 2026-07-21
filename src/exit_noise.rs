@@ -41,12 +41,23 @@ impl MappedExit {
     }
 }
 
+/// Compress a process exit code to a shell-style `u8` without fail-open.
+///
+/// Uses the low 8 bits of the status word. On Windows, `ExitStatus::code()` can
+/// surface NTSTATUS values such as `0xC0000005` as negative `i32`s; `i32::clamp(0, 255)`
+/// would map those crashes to **0**. When the low byte is 0 but the full status is
+/// non-zero, return `1` so unmatched crashes never become success.
+pub fn process_code_to_u8(code: i32) -> u8 {
+    let low = (code as u32) & 0xff;
+    if code != 0 && low == 0 { 1 } else { low as u8 }
+}
+
 pub fn map_exit_status(status: &std::process::ExitStatus) -> MappedExit {
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
         if let Some(signal) = status.signal() {
-            let code = (128i32.saturating_add(signal)).clamp(0, 255) as u8;
+            let code = process_code_to_u8(128i32.saturating_add(signal));
             return MappedExit::Signaled {
                 signal,
                 core_dumped: status.core_dumped(),
@@ -55,7 +66,7 @@ pub fn map_exit_status(status: &std::process::ExitStatus) -> MappedExit {
         }
         if let Some(code) = status.code() {
             return MappedExit::Exited {
-                code: code.clamp(0, 255) as u8,
+                code: process_code_to_u8(code),
             };
         }
         MappedExit::Other { code: 1 }
@@ -64,7 +75,7 @@ pub fn map_exit_status(status: &std::process::ExitStatus) -> MappedExit {
     {
         if let Some(code) = status.code() {
             MappedExit::Exited {
-                code: code.clamp(0, 255) as u8,
+                code: process_code_to_u8(code),
             }
         } else {
             MappedExit::Other { code: 1 }
@@ -123,6 +134,7 @@ impl ExitNoiseRule for HeadlessQuitSigabrtRule {
         if signal != 6 {
             return false;
         }
+        // Godot uses separate argv tokens (`--quit-after` then `N`), not `--quit-after=N`.
         obs.argv
             .iter()
             .any(|arg| arg == "--quit" || arg == "--quit-after")
@@ -311,18 +323,20 @@ fn scan_report_dirs(
             let Ok(text) = fs::read_to_string(&path) else {
                 continue;
             };
+            // Fail closed: require a PID match so an unrelated recent Godot report
+            // cannot reclassify this child's SIGABRT.
             let pid_hit = text.contains(&format!("[{pid_str}]"))
                 || text.contains(&format!("\"pid\" : {pid_str}"))
                 || text.contains(&format!("\"pid\":{pid_str}"))
                 || text.contains(&format!("pid: {pid_str}"));
+            if !pid_hit {
+                continue;
+            }
             let path_hit = text.contains(binary_str.as_ref())
                 || text.contains(binary_name)
                 || text.contains("Godot");
-            if pid_hit || (path_hit && text.contains("stack buffer overflow")) {
-                // Prefer pid match; path+ASI is a weaker fallback for the same window.
-                if pid_hit || text.contains("stack buffer overflow") {
-                    return Some(text);
-                }
+            if path_hit {
+                return Some(text);
             }
         }
     }
@@ -348,6 +362,23 @@ pub fn observation_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn process_code_to_u8_preserves_windows_crash_low_byte() {
+        // ACCESS_VIOLATION / STACK_BUFFER_OVERRUN must not become 0.
+        assert_eq!(process_code_to_u8(0xC000_0005u32 as i32), 0x05);
+        assert_eq!(process_code_to_u8(0xC000_0409u32 as i32), 0x09);
+        assert_eq!(process_code_to_u8(0), 0);
+        assert_eq!(process_code_to_u8(1), 1);
+        assert_eq!(process_code_to_u8(256), 1);
+        let mapped = MappedExit::Exited {
+            code: process_code_to_u8(0xC000_0005u32 as i32),
+        };
+        let obs = observation_for_test(mapped, &["--editor"], None);
+        let (code, matched) = apply_exit_policy(&obs, false);
+        assert_eq!(code, 0x05);
+        assert!(matched.is_none());
+    }
 
     #[test]
     fn headless_quit_matches_sigabrt_with_quit_flag() {

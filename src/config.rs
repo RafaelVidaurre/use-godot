@@ -5,13 +5,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{atomic, paths::Paths, project::ProjectSettings};
 
-/// User preferences under `$UG_ROOT/ug.toml` (not activation state).
+/// In-memory machine preferences. CLI `--json` uses snake_case field names;
+/// on disk they are kebab-case in `ug.toml`.
 ///
 /// Project `ug.toml` files may override these per directory (see
 /// [`resolve_exit_noise_policy`]). Legacy `$UG_ROOT/config.json` is still read
-/// and migrated on load/save.
-/// In-memory machine preferences. CLI `--json` uses snake_case field names;
-/// on disk they are kebab-case in `ug.toml`.
+/// and migrated under the state lock via [`UserConfig::migrate_legacy_if_needed`].
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct UserConfig {
     /// When true, wrap Godot and apply exit-noise rules (default false).
@@ -20,8 +19,8 @@ pub struct UserConfig {
     pub experimental_exit_noise_rules: bool,
 }
 
-/// On-disk `ug.toml` shape (machine or project). Machine uses concrete defaults;
-/// project layers use [`crate::project`] with optional keys.
+/// On-disk machine `ug.toml` shape (total document: missing key → false).
+/// Project layers use optional keys in [`crate::project`] (missing → inherit).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct TomlConfigFile {
@@ -68,33 +67,55 @@ impl From<LegacyJsonConfig> for UserConfig {
 }
 
 impl UserConfig {
+    /// Read machine preferences without writing.
+    ///
+    /// Preference: `$UG_ROOT/ug.toml`, else legacy `config.json`, else defaults.
+    /// When both files exist and disagree, errors instead of discarding values.
     pub fn load(paths: &Paths) -> Result<Self> {
         let config_path = paths.config();
-        if config_path.is_file() {
-            let config = Self::load_toml(&config_path)?;
-            // Drop stale JSON left beside the new file.
-            remove_legacy_config(paths);
-            return Ok(config);
-        }
+        let legacy_path = paths.legacy_config();
+        let has_toml = config_path.is_file();
+        let has_legacy = legacy_path.is_file();
 
-        let legacy = paths.legacy_config();
-        if legacy.is_file() {
-            let config = Self::load_legacy_json(&legacy)?;
-            // Eager migrate so `ug config path` and later loads use ug.toml only.
-            config.save(paths)?;
-            return Ok(config);
+        match (has_toml, has_legacy) {
+            (true, true) => {
+                let toml = Self::load_toml(&config_path)?;
+                let legacy = Self::load_legacy_json(&legacy_path)?;
+                if toml != legacy {
+                    bail!(
+                        "both {} and {} exist and disagree; remove or reconcile them before continuing",
+                        config_path.display(),
+                        legacy_path.display()
+                    );
+                }
+                Ok(toml)
+            }
+            (true, false) => Self::load_toml(&config_path),
+            (false, true) => Self::load_legacy_json(&legacy_path),
+            (false, false) => Ok(Self::default()),
         }
-
-        Ok(Self::default())
     }
 
+    /// Write machine `ug.toml` and remove legacy `config.json` if present.
+    ///
+    /// Callers that mutate config must hold the state lock.
     pub fn save(&self, paths: &Paths) -> Result<()> {
         paths.ensure()?;
         let body = toml::to_string_pretty(&TomlConfigFile::from(self))
             .context("serialize machine ug.toml")?;
         atomic::write_text(&paths.config(), &body)?;
-        remove_legacy_config(paths);
+        remove_legacy_config(paths)?;
         Ok(())
+    }
+
+    /// If only legacy `config.json` remains (or both agreed copies exist), rewrite
+    /// as `ug.toml` and delete the legacy file. Call under the state lock.
+    pub fn migrate_legacy_if_needed(paths: &Paths) -> Result<Self> {
+        let config = Self::load(paths)?;
+        if paths.legacy_config().is_file() {
+            config.save(paths)?;
+        }
+        Ok(config)
     }
 
     fn load_toml(path: &std::path::Path) -> Result<Self> {
@@ -113,10 +134,12 @@ impl UserConfig {
     }
 }
 
-fn remove_legacy_config(paths: &Paths) {
+fn remove_legacy_config(paths: &Paths) -> Result<()> {
     let legacy = paths.legacy_config();
-    if legacy.is_file() {
-        let _ = fs::remove_file(&legacy);
+    match fs::remove_file(&legacy) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("remove {}", legacy.display())),
     }
 }
 
@@ -300,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn migrates_legacy_config_json_to_ug_toml() {
+    fn load_reads_legacy_without_migrating() {
         let dir = tempdir().unwrap();
         let paths = Paths {
             root: dir.path().to_path_buf(),
@@ -313,13 +336,41 @@ mod tests {
 
         let loaded = UserConfig::load(&paths).unwrap();
         assert!(loaded.tolerate_exit_noise);
-        assert!(loaded.experimental_exit_noise_rules);
+        assert!(paths.legacy_config().is_file());
+        assert!(!paths.config().exists());
+    }
+
+    #[test]
+    fn migrate_legacy_under_explicit_call() {
+        let dir = tempdir().unwrap();
+        let paths = Paths {
+            root: dir.path().to_path_buf(),
+        };
+        fs::write(
+            paths.legacy_config(),
+            r#"{"tolerate_exit_noise":true,"experimental_exit_noise_rules":true}"#,
+        )
+        .unwrap();
+
+        let loaded = UserConfig::migrate_legacy_if_needed(&paths).unwrap();
+        assert!(loaded.tolerate_exit_noise);
         assert!(paths.config().is_file());
         assert!(!paths.legacy_config().exists());
-
         let body = fs::read_to_string(paths.config()).unwrap();
         assert!(body.contains("tolerate-exit-noise = true"));
         assert!(body.contains("experimental-exit-noise-rules = true"));
+    }
+
+    #[test]
+    fn disagreeing_toml_and_legacy_errors() {
+        let dir = tempdir().unwrap();
+        let paths = Paths {
+            root: dir.path().to_path_buf(),
+        };
+        fs::write(paths.config(), "tolerate-exit-noise = false\n").unwrap();
+        fs::write(paths.legacy_config(), r#"{"tolerate_exit_noise":true}"#).unwrap();
+        let err = UserConfig::load(&paths).unwrap_err().to_string();
+        assert!(err.contains("disagree"), "unexpected error: {err}");
     }
 
     #[test]

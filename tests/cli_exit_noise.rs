@@ -229,6 +229,41 @@ fn legacy_config_json_migrates_to_machine_ug_toml() {
 
 #[cfg(unix)]
 #[test]
+fn env_zero_forces_tolerate_off_over_config_and_project() {
+    let root = tempdir().unwrap();
+    let project = TempDir::new().unwrap();
+    let sources = tempdir().unwrap();
+    let source = support::fake_godot_signal(&sources, "Godot-env-off", 6);
+    ug(root.path())
+        .args(["--quiet", "install", "4.7@double", "--from"])
+        .arg(&source)
+        .assert()
+        .success();
+    ug(root.path())
+        .args(["--quiet", "config", "set", "tolerate-exit-noise", "true"])
+        .assert()
+        .success();
+    fs::write(
+        project.path().join("ug.toml"),
+        "tolerate-exit-noise = true\n",
+    )
+    .unwrap();
+
+    let mut command = support::ug_process(root.path());
+    command
+        .current_dir(project.path())
+        .env("UG_TOLERATE_EXIT_NOISE", "0")
+        .args(["exec", "4.7@double", "--", "--quit"]);
+    let output = command.output().unwrap();
+    assert!(
+        !output.status.success(),
+        "env 0 must force wrap off so SIGABRT stays non-success, got {:?}",
+        output.status
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn tolerate_rewrites_headless_quit_sigabrt_to_zero() {
     let root = tempdir().unwrap();
     let sources = tempdir().unwrap();

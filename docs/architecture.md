@@ -139,9 +139,23 @@ Resolution order (first set wins):
 3. Project `ug.toml` chain from the filesystem root down to the current directory
    (closer files override farther ones per key; omitted keys leave parent/machine
    values). Files under `$UG_ROOT` are skipped so machine config is not reapplied.
-4. Machine `$UG_ROOT/ug.toml` (`ug config get|set`), same file format as project
-   settings, separate from `state.json`. Legacy `config.json` is migrated on load.
+4. Machine `$UG_ROOT/ug.toml` (`ug config get|set`), same **keys** as project
+   files but a **total** document (missing key → false). Project files are sparse
+   overlays (missing key → inherit). Separate from `state.json`.
 5. Default off
+
+Legacy `$UG_ROOT/config.json` is still readable. Migration to `ug.toml` runs under
+the state lock on `ug config path|get|set` (not on unlocked `ug exec` loads). If
+both files exist and disagree, load fails closed.
+
+**Shipped vs deferred (design doc):** this release implements opt-in wrap for
+`ug exec`, machine/project `ug.toml`, and the stable headless / stack-chk rules.
+Not yet shipped: multi-call managed runtime / shim rebind, Unix signal forwarding
+from wrapper to Godot, and doctor config↔shim checks. Wrap mode is spawn+wait only;
+signals delivered solely to the wrapper PID are not forwarded (tracked follow-up).
+
+On unmatched Unix SIGABRT, wrap may poll macOS Diagnostic Reports for up to ~2s
+before returning. Correlator evidence requires a **PID match** in the report text.
 
 `.ugrc` remains a version pin only and is not a settings file. See
 `docs/designs/tolerate-exit-noise.md`.

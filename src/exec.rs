@@ -36,11 +36,13 @@ fn direct_execute(binary: &Path, args: &[String]) -> Result<u8> {
 
 #[cfg(not(unix))]
 fn direct_execute(binary: &Path, args: &[String]) -> Result<u8> {
+    use crate::exit_noise::process_code_to_u8;
+
     let status = Command::new(binary)
         .args(args)
         .status()
         .with_context(|| format!("execute {}", binary.display()))?;
-    Ok(status.code().unwrap_or(1).clamp(0, 255) as u8)
+    Ok(status.code().map(process_code_to_u8).unwrap_or(1))
 }
 
 fn wrap_execute(binary: &Path, args: &[String], policy: ExitNoisePolicy) -> Result<u8> {
