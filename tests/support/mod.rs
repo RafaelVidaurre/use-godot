@@ -154,11 +154,7 @@ pub fn fake_godot_signal(temp: &TempDir, name: &str, signal: i32) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
     let path = temp.path().join(name);
-    fs::write(
-        &path,
-        format!("#!/bin/sh\nkill -s {signal} $$\n"),
-    )
-    .unwrap();
+    fs::write(&path, format!("#!/bin/sh\nkill -s {signal} $$\n")).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     path
 }

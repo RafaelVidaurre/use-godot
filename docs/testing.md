@@ -29,6 +29,7 @@ the compiled `ug` binary and are grouped by behavior:
 - `cli_install.rs` covers imports, official downloads, integrity, and extraction;
 - `cli_state.rs` covers selection, aliases, defaults, recovery, and uninstall;
 - `cli_project_shell.rs` covers `.ugrc`, shims, and shell output;
+- `cli_exit_noise.rs` covers exit-noise policy, machine config, and `ug.toml`;
 - `cli_contract.rs` covers argument and output contracts.
 
 Reusable process, executable, archive, and HTTP fixtures belong in
@@ -86,6 +87,7 @@ Integration tests execute the compiled CLI against temporary roots and cover:
 - independent variants, aliases, defaults, active selection, one-shot execution,
   uninstall refusal, and forced reference cleanup;
 - `.ugrc` pinning and parent discovery across install/use/which/exec;
+- hierarchical `ug.toml` settings (child overrides parent) over machine config;
 - all non-official identity families (`double`, `godotjs`, `custom:name`);
 - a mocked official release API and ZIP download with a valid SHA-256 digest;
 - checksum rejection with no canonical install or partial download left behind;

@@ -42,6 +42,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 tempfile = "3.20"
 thiserror = "2.0"
+toml = { version = "0.8", features = ["parse", "display"] }
 zip = { version = "4.3", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

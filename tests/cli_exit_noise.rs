@@ -1,7 +1,9 @@
 mod support;
 
+use std::fs;
+
 use predicates::prelude::*;
-use tempfile::tempdir;
+use tempfile::{TempDir, tempdir};
 
 use support::ug;
 
@@ -74,6 +76,127 @@ fn config_get_json_and_path() {
         value["configured"]["tolerate_exit_noise"].as_bool(),
         Some(true)
     );
+    assert!(value["project"]["sources"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn ug_toml_overrides_machine_and_child_overrides_parent() {
+    let root = tempdir().unwrap();
+    let project = TempDir::new().unwrap();
+    let child = project.path().join("nested");
+    fs::create_dir_all(&child).unwrap();
+
+    ug(root.path())
+        .args(["--quiet", "config", "set", "tolerate-exit-noise", "false"])
+        .assert()
+        .success();
+
+    fs::write(
+        project.path().join("ug.toml"),
+        "tolerate-exit-noise = true\nexperimental-exit-noise-rules = true\n",
+    )
+    .unwrap();
+    fs::write(child.join("ug.toml"), "tolerate-exit-noise = false\n").unwrap();
+
+    let parent_out = ug(root.path())
+        .current_dir(project.path())
+        .args(["--json", "config", "get", "--effective"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let parent: serde_json::Value = serde_json::from_slice(&parent_out).unwrap();
+    assert_eq!(
+        parent["configured"]["tolerate_exit_noise"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        parent["project"]["tolerate_exit_noise"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        parent["project"]["experimental_exit_noise_rules"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        parent["effective"]["tolerate_exit_noise"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        parent["effective"]["allow_experimental_rules"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(parent["project"]["sources"].as_array().unwrap().len(), 1);
+
+    let child_out = ug(root.path())
+        .current_dir(&child)
+        .args(["--json", "config", "get", "--effective"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let child_value: serde_json::Value = serde_json::from_slice(&child_out).unwrap();
+    assert_eq!(
+        child_value["project"]["tolerate_exit_noise"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        child_value["project"]["experimental_exit_noise_rules"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        child_value["effective"]["tolerate_exit_noise"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        child_value["effective"]["allow_experimental_rules"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        child_value["project"]["sources"].as_array().unwrap().len(),
+        2
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn ug_toml_enables_tolerate_on_exec() {
+    let root = tempdir().unwrap();
+    let project = TempDir::new().unwrap();
+    let sources = tempdir().unwrap();
+    let source = support::fake_godot_signal(&sources, "Godot-abort-quit-toml", 6);
+    ug(root.path())
+        .args(["--quiet", "install", "4.7@double", "--from"])
+        .arg(&source)
+        .assert()
+        .success();
+
+    fs::write(
+        project.path().join("ug.toml"),
+        "tolerate-exit-noise = true\n",
+    )
+    .unwrap();
+
+    ug(root.path())
+        .current_dir(project.path())
+        .args(["--quiet", "exec", "4.7@double", "--", "--quit"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn ug_toml_unknown_key_errors() {
+    let root = tempdir().unwrap();
+    let project = TempDir::new().unwrap();
+    fs::write(project.path().join("ug.toml"), "nope = true\n").unwrap();
+    ug(root.path())
+        .current_dir(project.path())
+        .args(["config", "get", "--effective"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("parse"));
 }
 
 #[cfg(unix)]
