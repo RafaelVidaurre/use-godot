@@ -3,7 +3,7 @@ use std::{
     env, fs,
     io::{self, IsTerminal},
     path::PathBuf,
-    process::{ExitCode},
+    process::ExitCode,
     time::Duration,
 };
 
@@ -131,7 +131,7 @@ enum Commands {
     },
     /// Diagnose managed state.
     Doctor,
-    /// Show or change user configuration (e.g. tolerate-exit-noise).
+    /// Show or change machine configuration (project overrides live in ug.toml).
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
@@ -147,7 +147,7 @@ enum Commands {
 enum ConfigCommand {
     /// Print the config.json path.
     Path,
-    /// Print configured values (file + defaults). Use --effective for env-applied policy.
+    /// Print machine config values. Use --effective for CLI/env/project/machine policy.
     Get {
         #[arg(long)]
         effective: bool,
@@ -395,8 +395,9 @@ fn run(cli: Cli) -> Result<u8> {
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
             let user_config = UserConfig::load(&paths)?;
+            let project = project_settings()?;
             let policy =
-                config::resolve_exit_noise_policy(policy_cli, &user_config, flags.quiet)?;
+                config::resolve_exit_noise_policy(policy_cli, &user_config, &project, flags.quiet)?;
             return exec::run_godot(&item.binary, &args, policy);
         }
         Commands::Config { command } => config_command(flags, &paths, policy_cli, command)?,
@@ -443,6 +444,7 @@ fn config_command(
         }
         ConfigCommand::Get { effective } => {
             let configured = UserConfig::load(paths)?;
+            let project = project_settings()?;
             if flags.json {
                 let mut root = serde_json::Map::new();
                 root.insert(
@@ -453,9 +455,25 @@ fn config_command(
                     "path".into(),
                     serde_json::Value::String(paths.config().display().to_string()),
                 );
+                root.insert(
+                    "project".into(),
+                    serde_json::json!({
+                        "tolerate_exit_noise": project.tolerate_exit_noise,
+                        "experimental_exit_noise_rules": project.experimental_exit_noise_rules,
+                        "sources": project
+                            .sources
+                            .iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>(),
+                    }),
+                );
                 if effective {
-                    let policy =
-                        config::resolve_exit_noise_policy(policy_cli, &configured, flags.quiet)?;
+                    let policy = config::resolve_exit_noise_policy(
+                        policy_cli,
+                        &configured,
+                        &project,
+                        flags.quiet,
+                    )?;
                     root.insert(
                         "effective".into(),
                         serde_json::json!({
@@ -471,9 +489,22 @@ fn config_command(
                     "experimental-exit-noise-rules: {}",
                     configured.experimental_exit_noise_rules
                 );
+                if let Some(value) = project.tolerate_exit_noise {
+                    println!("project tolerate-exit-noise: {value}");
+                }
+                if let Some(value) = project.experimental_exit_noise_rules {
+                    println!("project experimental-exit-noise-rules: {value}");
+                }
+                for source in &project.sources {
+                    println!("project source: {}", source.display());
+                }
                 if effective {
-                    let policy =
-                        config::resolve_exit_noise_policy(policy_cli, &configured, flags.quiet)?;
+                    let policy = config::resolve_exit_noise_policy(
+                        policy_cli,
+                        &configured,
+                        &project,
+                        flags.quiet,
+                    )?;
                     println!("effective tolerate-exit-noise: {}", policy.tolerate);
                     println!(
                         "effective experimental-exit-noise-rules: {}",
@@ -823,6 +854,11 @@ fn selector_or_project(explicit: Option<String>) -> Result<String> {
 fn project_selector() -> Result<Option<String>> {
     let directory = env::current_dir().context("read current directory")?;
     Ok(project::discover(&directory)?.map(|project| project.selector))
+}
+
+fn project_settings() -> Result<project::ProjectSettings> {
+    let directory = env::current_dir().context("read current directory")?;
+    project::load_settings(&directory)
 }
 
 fn shell_single_quote(value: &str) -> String {

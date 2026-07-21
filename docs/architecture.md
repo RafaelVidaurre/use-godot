@@ -30,7 +30,8 @@ silently changing an established environment.
 
 - `model`: version/channel/variant identities and persisted manifests.
 - `resolve`: installed selector and alias resolution with cycle/ambiguity checks.
-- `project`: atomic `.ugrc` writes and nearest-parent project discovery.
+- `project`: atomic `.ugrc` pin writes, nearest-parent pin discovery, and
+  hierarchical `ug.toml` settings (child overrides parent).
 - `remote`: cached GitHub release discovery and official asset mapping.
 - `install`: streaming hash verification, secure extraction, local import, and
   atomic installation commit.
@@ -125,10 +126,20 @@ normal `godot.exe` shim use remains a direct hard link there as well.
 
 ### Exit-noise tolerance (opt-in)
 
-When `tolerate-exit-noise` is enabled (CLI `--tolerate-exit-noise`, env
-`UG_TOLERATE_EXIT_NOISE`, or `config.json`), `ug exec` **wraps** Godot as a child
-on all platforms, applies built-in fail-closed rules to the wait status, and may
+When `tolerate-exit-noise` is enabled, `ug exec` **wraps** Godot as a child on
+all platforms, applies built-in fail-closed rules to the wait status, and may
 rewrite a matched known false-crash exit to `0`. Default is **off**; unmatched
 exits and crash presentation (Godot crash handler, OS Problem Report) are
-unchanged. Preferences live in `$UG_ROOT/config.json` (`ug config get|set`),
-separate from `state.json`. See `docs/designs/tolerate-exit-noise.md`.
+unchanged.
+
+Resolution order (first set wins):
+
+1. CLI `--tolerate-exit-noise` / `--no-tolerate-exit-noise`
+2. `UG_TOLERATE_EXIT_NOISE` (and `UG_EXIT_NOISE_EXPERIMENTAL` for experimental rules)
+3. Project `ug.toml` chain from the filesystem root down to the current directory
+   (closer files override farther ones per key; omitted keys leave parent/machine values)
+4. Machine `$UG_ROOT/config.json` (`ug config get|set`), separate from `state.json`
+5. Default off
+
+`.ugrc` remains a version pin only and is not a settings file. See
+`docs/designs/tolerate-exit-noise.md`.

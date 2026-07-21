@@ -100,12 +100,17 @@ ug --tolerate-exit-noise exec -- --path myproj --quit
 ug config set tolerate-exit-noise true
 ug config set tolerate-exit-noise false
 
+# per project (commit ug.toml; child dirs override parents)
+# ug.toml:
+#   tolerate-exit-noise = true
+
 # env override (CI)
 UG_TOLERATE_EXIT_NOISE=1 ug exec -- --quit
 UG_TOLERATE_EXIT_NOISE=0 ug exec -- --quit   # force off
 ```
 
-Precedence: CLI flags > `UG_TOLERATE_EXIT_NOISE` > `config.json` > off.
+Precedence: CLI flags > `UG_TOLERATE_EXIT_NOISE` > project `ug.toml` chain >
+machine `config.json` > off. `.ugrc` is still only the version pin.
 `ug` never injects `--disable-crash-handler` or mutes OS crash dialogs.
 
 Want the editor as plain `godot`? Put the managed shim on your `PATH` (optional;
@@ -155,6 +160,27 @@ ug exec -- --editor project.godot
 
 An explicit selector always wins over `.ugrc`. Commit the file if you want the
 team on the same Godot.
+
+### Project settings (`ug.toml`)
+
+Optional boolean preferences for the current directory tree live in `ug.toml`
+(not `.ugrc`). Every ancestor `ug.toml` from the filesystem root down to the
+cwd is loaded; **closer files override farther ones** for each key. Machine
+defaults still come from `ug config` (`$UG_ROOT/config.json`).
+
+```toml
+# ug.toml — project or monorepo root
+tolerate-exit-noise = true
+# experimental-exit-noise-rules = false
+```
+
+```toml
+# nested package can turn a parent key back off
+tolerate-exit-noise = false
+```
+
+Unknown keys are rejected. Inspect the merge with
+`ug config get --effective` (and `--json` for machine + project + effective).
 
 ### Aliases
 

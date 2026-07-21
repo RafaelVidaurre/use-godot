@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add hierarchical project settings via `ug.toml` (child overrides parent) layered
+  over machine `config.json`, with CLI/env still winning for exit-noise policy.
+- Keep `.ugrc` as the version pin only; surface project sources on
+  `ug config get` / `ug config get --effective`.
+
 ## 0.2.0 - 2026-07-13
 
 - Publish checksummed native archives for macOS arm64/x86_64, glibc Linux

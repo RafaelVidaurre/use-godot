@@ -13,9 +13,17 @@ use std::{fs, time::SystemTime};
 /// Shell-style mapped wait status.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MappedExit {
-    Exited { code: u8 },
-    Signaled { signal: i32, core_dumped: bool, code: u8 },
-    Other { code: u8 },
+    Exited {
+        code: u8,
+    },
+    Signaled {
+        signal: i32,
+        core_dumped: bool,
+        code: u8,
+    },
+    Other {
+        code: u8,
+    },
 }
 
 impl MappedExit {
@@ -115,7 +123,9 @@ impl ExitNoiseRule for HeadlessQuitSigabrtRule {
         if signal != 6 {
             return false;
         }
-        obs.argv.iter().any(|arg| arg == "--quit" || arg == "--quit-after")
+        obs.argv
+            .iter()
+            .any(|arg| arg == "--quit" || arg == "--quit-after")
     }
 }
 
@@ -165,7 +175,9 @@ impl ExitNoiseRule for StackChkBindAbortRule {
         if !stack_chk {
             return false;
         }
-        BIND_SITE_DENYLIST.iter().any(|m| report.contains(m) || report_lower.contains(&m.to_ascii_lowercase()))
+        BIND_SITE_DENYLIST
+            .iter()
+            .any(|m| report.contains(m) || report_lower.contains(&m.to_ascii_lowercase()))
     }
 }
 
@@ -455,11 +467,7 @@ some_other_library.dylib
 
     #[test]
     fn apply_policy_passes_through_exit_one() {
-        let obs = observation_for_test(
-            MappedExit::Exited { code: 1 },
-            &["--quit"],
-            None,
-        );
+        let obs = observation_for_test(MappedExit::Exited { code: 1 }, &["--quit"], None);
         let (code, matched) = apply_exit_policy(&obs, false);
         assert_eq!(code, 1);
         assert!(matched.is_none());

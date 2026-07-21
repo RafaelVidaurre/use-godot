@@ -94,10 +94,7 @@ fn wrap_execute(binary: &Path, args: &[String], policy: ExitNoisePolicy) -> Resu
     if let Some(m) = matched {
         if !policy.quiet {
             let raw = obs.mapped.code();
-            eprintln!(
-                "ug: tolerated exit noise: {} (raw status {raw})",
-                m.rule_id
-            );
+            eprintln!("ug: tolerated exit noise: {} (raw status {raw})", m.rule_id);
         }
     }
     Ok(code)

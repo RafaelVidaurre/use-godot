@@ -3,9 +3,12 @@ use std::{env, fs};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{atomic, paths::Paths};
+use crate::{atomic, paths::Paths, project::ProjectSettings};
 
 /// User preferences under `$UG_ROOT/config.json` (not activation state).
+///
+/// Project `ug.toml` files may override these per directory (see
+/// [`resolve_exit_noise_policy`]).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UserConfig {
     /// When true, wrap Godot and apply exit-noise rules (default false).
@@ -50,7 +53,9 @@ pub fn parse_env_bool(raw: &str) -> Result<bool> {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
         "" => bail!("empty boolean environment value"),
-        other => bail!("invalid boolean environment value '{other}' (use 1/0, true/false, yes/no, on/off)"),
+        other => bail!(
+            "invalid boolean environment value '{other}' (use 1/0, true/false, yes/no, on/off)"
+        ),
     }
 }
 
@@ -62,24 +67,32 @@ fn env_bool(name: &str) -> Result<Option<bool>> {
     }
 }
 
-/// Precedence: CLI > env > config > default (false).
+/// Precedence: CLI > env > project `ug.toml` chain > machine `config.json` > default (false).
+///
+/// In the project chain, a closer `ug.toml` overrides the same key from a parent
+/// directory. Omitted keys do not clear parent or machine values.
 pub fn resolve_exit_noise_policy(
     cli: CliPolicyOverrides,
-    config: &UserConfig,
+    machine: &UserConfig,
+    project: &ProjectSettings,
     quiet: bool,
 ) -> Result<ExitNoisePolicy> {
     let tolerate = if let Some(v) = cli.tolerate_exit_noise {
         v
     } else if let Some(v) = env_bool("UG_TOLERATE_EXIT_NOISE")? {
         v
+    } else if let Some(v) = project.tolerate_exit_noise {
+        v
     } else {
-        config.tolerate_exit_noise
+        machine.tolerate_exit_noise
     };
 
     let allow_experimental = if let Some(v) = env_bool("UG_EXIT_NOISE_EXPERIMENTAL")? {
         v
+    } else if let Some(v) = project.experimental_exit_noise_rules {
+        v
     } else {
-        config.experimental_exit_noise_rules
+        machine.experimental_exit_noise_rules
     };
 
     Ok(ExitNoisePolicy {
@@ -131,7 +144,7 @@ mod tests {
 
     #[test]
     fn resolve_prefers_cli_over_config() {
-        let config = UserConfig {
+        let machine = UserConfig {
             tolerate_exit_noise: true,
             experimental_exit_noise_rules: false,
         };
@@ -139,11 +152,47 @@ mod tests {
             CliPolicyOverrides {
                 tolerate_exit_noise: Some(false),
             },
-            &config,
+            &machine,
+            &ProjectSettings::default(),
             false,
         )
         .unwrap();
         assert!(!policy.tolerate);
+    }
+
+    #[test]
+    fn resolve_prefers_project_over_machine() {
+        let machine = UserConfig {
+            tolerate_exit_noise: false,
+            experimental_exit_noise_rules: false,
+        };
+        let project = ProjectSettings {
+            tolerate_exit_noise: Some(true),
+            experimental_exit_noise_rules: None,
+            sources: Vec::new(),
+        };
+        let policy =
+            resolve_exit_noise_policy(CliPolicyOverrides::default(), &machine, &project, false)
+                .unwrap();
+        assert!(policy.tolerate);
+        assert!(!policy.allow_experimental_rules);
+    }
+
+    #[test]
+    fn resolve_project_none_falls_back_to_machine() {
+        let machine = UserConfig {
+            tolerate_exit_noise: true,
+            experimental_exit_noise_rules: true,
+        };
+        let policy = resolve_exit_noise_policy(
+            CliPolicyOverrides::default(),
+            &machine,
+            &ProjectSettings::default(),
+            false,
+        )
+        .unwrap();
+        assert!(policy.tolerate);
+        assert!(policy.allow_experimental_rules);
     }
 
     #[test]
