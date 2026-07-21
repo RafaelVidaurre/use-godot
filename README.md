@@ -112,6 +112,8 @@ UG_TOLERATE_EXIT_NOISE=0 ug exec -- --quit   # force off
 Precedence: CLI flags > `UG_TOLERATE_EXIT_NOISE` > project `ug.toml` chain >
 machine `$UG_ROOT/ug.toml` > off. `.ugrc` is still only the version pin.
 `ug` never injects `--disable-crash-handler` or mutes OS crash dialogs.
+Wrap mode is spawn+wait for `ug exec` only (no signal forwarding yet; the
+managed `godot` shim stays a direct link).
 
 Want the editor as plain `godot`? Put the managed shim on your `PATH` (optional;
 `ug exec` always works without this):

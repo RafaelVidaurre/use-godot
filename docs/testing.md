@@ -38,7 +38,8 @@ function.
 
 Every CLI test must use a temporary managed root. The shared command fixture
 also sets temporary `HOME`, XDG, `LOCALAPPDATA`, and `USERPROFILE` directories
-and removes inherited `UG_ROOT` and `UG_RELEASE_API` values. Tests must not read
+and removes inherited `UG_ROOT`, `UG_RELEASE_API`, `UG_TOLERATE_EXIT_NOISE`,
+`UG_EXIT_NOISE_EXPERIMENTAL`, and `UG_EXIT_NOISE_DEBUG` values. Tests must not read
 or write shell startup files, application directories, pre-existing
 version-manager state, or system command links. Platform-specific filesystem
 assertions must be guarded with `cfg`; shared behavior should remain runnable on
