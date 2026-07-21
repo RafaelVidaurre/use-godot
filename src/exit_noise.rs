@@ -124,9 +124,8 @@ impl ExitNoiseRule for HeadlessQuitSigabrtRule {
     }
 
     fn matches(&self, obs: &ExitObservation) -> bool {
-        if !cfg!(unix) {
-            return false;
-        }
+        // Production mapping only produces Signaled on Unix; unit tests may construct
+        // Signaled observations on any host.
         let Some(signal) = obs.mapped.signal() else {
             return false;
         };
@@ -167,9 +166,8 @@ impl ExitNoiseRule for StackChkBindAbortRule {
     }
 
     fn matches(&self, obs: &ExitObservation) -> bool {
-        if !cfg!(unix) {
-            return false;
-        }
+        // Production mapping only produces Signaled on Unix; unit tests may construct
+        // Signaled observations on any host.
         let Some(signal) = obs.mapped.signal() else {
             return false;
         };
