@@ -243,7 +243,7 @@ pub fn correlate_macos_crash_report(
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (child_pid, binary, child_start, deadline);
-        return None;
+        None
     }
     #[cfg(target_os = "macos")]
     {
