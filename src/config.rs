@@ -5,32 +5,118 @@ use serde::{Deserialize, Serialize};
 
 use crate::{atomic, paths::Paths, project::ProjectSettings};
 
-/// User preferences under `$UG_ROOT/config.json` (not activation state).
+/// User preferences under `$UG_ROOT/ug.toml` (not activation state).
 ///
 /// Project `ug.toml` files may override these per directory (see
-/// [`resolve_exit_noise_policy`]).
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+/// [`resolve_exit_noise_policy`]). Legacy `$UG_ROOT/config.json` is still read
+/// and migrated on load/save.
+/// In-memory machine preferences. CLI `--json` uses snake_case field names;
+/// on disk they are kebab-case in `ug.toml`.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct UserConfig {
     /// When true, wrap Godot and apply exit-noise rules (default false).
-    #[serde(default)]
     pub tolerate_exit_noise: bool,
     /// Allow experimental exit-noise rules (default false).
-    #[serde(default)]
     pub experimental_exit_noise_rules: bool,
+}
+
+/// On-disk `ug.toml` shape (machine or project). Machine uses concrete defaults;
+/// project layers use [`crate::project`] with optional keys.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct TomlConfigFile {
+    #[serde(default, rename = "tolerate-exit-noise")]
+    tolerate_exit_noise: bool,
+    #[serde(default, rename = "experimental-exit-noise-rules")]
+    experimental_exit_noise_rules: bool,
+}
+
+/// Legacy machine file written by early exit-noise builds.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+struct LegacyJsonConfig {
+    #[serde(default)]
+    tolerate_exit_noise: bool,
+    #[serde(default)]
+    experimental_exit_noise_rules: bool,
+}
+
+impl From<TomlConfigFile> for UserConfig {
+    fn from(value: TomlConfigFile) -> Self {
+        Self {
+            tolerate_exit_noise: value.tolerate_exit_noise,
+            experimental_exit_noise_rules: value.experimental_exit_noise_rules,
+        }
+    }
+}
+
+impl From<&UserConfig> for TomlConfigFile {
+    fn from(value: &UserConfig) -> Self {
+        Self {
+            tolerate_exit_noise: value.tolerate_exit_noise,
+            experimental_exit_noise_rules: value.experimental_exit_noise_rules,
+        }
+    }
+}
+
+impl From<LegacyJsonConfig> for UserConfig {
+    fn from(value: LegacyJsonConfig) -> Self {
+        Self {
+            tolerate_exit_noise: value.tolerate_exit_noise,
+            experimental_exit_noise_rules: value.experimental_exit_noise_rules,
+        }
+    }
 }
 
 impl UserConfig {
     pub fn load(paths: &Paths) -> Result<Self> {
-        match fs::read(paths.config()) {
-            Ok(bytes) => serde_json::from_slice(&bytes).context("parse config.json"),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(e) => Err(e).with_context(|| format!("read {}", paths.config().display())),
+        let config_path = paths.config();
+        if config_path.is_file() {
+            let config = Self::load_toml(&config_path)?;
+            // Drop stale JSON left beside the new file.
+            remove_legacy_config(paths);
+            return Ok(config);
         }
+
+        let legacy = paths.legacy_config();
+        if legacy.is_file() {
+            let config = Self::load_legacy_json(&legacy)?;
+            // Eager migrate so `ug config path` and later loads use ug.toml only.
+            config.save(paths)?;
+            return Ok(config);
+        }
+
+        Ok(Self::default())
     }
 
     pub fn save(&self, paths: &Paths) -> Result<()> {
         paths.ensure()?;
-        atomic::write_json(&paths.config(), self)
+        let body = toml::to_string_pretty(&TomlConfigFile::from(self))
+            .context("serialize machine ug.toml")?;
+        atomic::write_text(&paths.config(), &body)?;
+        remove_legacy_config(paths);
+        Ok(())
+    }
+
+    fn load_toml(path: &std::path::Path) -> Result<Self> {
+        let contents =
+            fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let file: TomlConfigFile =
+            toml::from_str(&contents).with_context(|| format!("parse {}", path.display()))?;
+        Ok(file.into())
+    }
+
+    fn load_legacy_json(path: &std::path::Path) -> Result<Self> {
+        let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+        let file: LegacyJsonConfig =
+            serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))?;
+        Ok(file.into())
+    }
+}
+
+fn remove_legacy_config(paths: &Paths) {
+    let legacy = paths.legacy_config();
+    if legacy.is_file() {
+        let _ = fs::remove_file(&legacy);
     }
 }
 
@@ -67,7 +153,7 @@ fn env_bool(name: &str) -> Result<Option<bool>> {
     }
 }
 
-/// Precedence: CLI > env > project `ug.toml` chain > machine `config.json` > default (false).
+/// Precedence: CLI > env > project `ug.toml` chain > machine `$UG_ROOT/ug.toml` > default (false).
 ///
 /// In the project chain, a closer `ug.toml` overrides the same key from a parent
 /// directory. Omitted keys do not clear parent or machine values.
@@ -196,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn config_round_trip() {
+    fn config_round_trip_writes_ug_toml() {
         let dir = tempdir().unwrap();
         let paths = Paths {
             root: dir.path().to_path_buf(),
@@ -205,8 +291,35 @@ mod tests {
         assert!(!config.tolerate_exit_noise);
         config.tolerate_exit_noise = true;
         config.save(&paths).unwrap();
+        assert!(paths.config().is_file());
+        assert!(!paths.legacy_config().exists());
+        let body = fs::read_to_string(paths.config()).unwrap();
+        assert!(body.contains("tolerate-exit-noise = true"));
         let loaded = UserConfig::load(&paths).unwrap();
         assert!(loaded.tolerate_exit_noise);
+    }
+
+    #[test]
+    fn migrates_legacy_config_json_to_ug_toml() {
+        let dir = tempdir().unwrap();
+        let paths = Paths {
+            root: dir.path().to_path_buf(),
+        };
+        fs::write(
+            paths.legacy_config(),
+            r#"{"tolerate_exit_noise":true,"experimental_exit_noise_rules":true}"#,
+        )
+        .unwrap();
+
+        let loaded = UserConfig::load(&paths).unwrap();
+        assert!(loaded.tolerate_exit_noise);
+        assert!(loaded.experimental_exit_noise_rules);
+        assert!(paths.config().is_file());
+        assert!(!paths.legacy_config().exists());
+
+        let body = fs::read_to_string(paths.config()).unwrap();
+        assert!(body.contains("tolerate-exit-noise = true"));
+        assert!(body.contains("experimental-exit-noise-rules = true"));
     }
 
     #[test]

@@ -29,7 +29,13 @@ impl Paths {
     pub fn state(&self) -> PathBuf {
         self.root.join("state.json")
     }
+    /// Machine preferences (`ug.toml`), same format as project settings files.
     pub fn config(&self) -> PathBuf {
+        self.root.join("ug.toml")
+    }
+
+    /// Pre-`ug.toml` machine preferences; still read once for migration.
+    pub fn legacy_config(&self) -> PathBuf {
         self.root.join("config.json")
     }
     pub fn lock(&self) -> PathBuf {

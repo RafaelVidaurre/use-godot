@@ -3,7 +3,9 @@
 ## Unreleased
 
 - Add hierarchical project settings via `ug.toml` (child overrides parent) layered
-  over machine `config.json`, with CLI/env still winning for exit-noise policy.
+  over machine `$UG_ROOT/ug.toml`, with CLI/env still winning for exit-noise policy.
+- Store machine defaults as `ug.toml` (same keys as project files); migrate legacy
+  `$UG_ROOT/config.json` on load/save.
 - Keep `.ugrc` as the version pin only; surface project sources on
   `ug config get` / `ug config get --effective`.
 

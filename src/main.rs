@@ -145,7 +145,7 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum ConfigCommand {
-    /// Print the config.json path.
+    /// Print the machine ug.toml path.
     Path,
     /// Print machine config values. Use --effective for CLI/env/project/machine policy.
     Get {
@@ -395,7 +395,7 @@ fn run(cli: Cli) -> Result<u8> {
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
             let user_config = UserConfig::load(&paths)?;
-            let project = project_settings()?;
+            let project = project_settings(&paths)?;
             let policy =
                 config::resolve_exit_noise_policy(policy_cli, &user_config, &project, flags.quiet)?;
             return exec::run_godot(&item.binary, &args, policy);
@@ -444,7 +444,7 @@ fn config_command(
         }
         ConfigCommand::Get { effective } => {
             let configured = UserConfig::load(paths)?;
-            let project = project_settings()?;
+            let project = project_settings(paths)?;
             if flags.json {
                 let mut root = serde_json::Map::new();
                 root.insert(
@@ -856,9 +856,10 @@ fn project_selector() -> Result<Option<String>> {
     Ok(project::discover(&directory)?.map(|project| project.selector))
 }
 
-fn project_settings() -> Result<project::ProjectSettings> {
+fn project_settings(paths: &Paths) -> Result<project::ProjectSettings> {
     let directory = env::current_dir().context("read current directory")?;
-    project::load_settings(&directory)
+    // Exclude $UG_ROOT/ug.toml so machine defaults are not double-counted as project.
+    project::load_settings(&directory, Some(&paths.root))
 }
 
 fn shell_single_quote(value: &str) -> String {

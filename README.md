@@ -110,7 +110,7 @@ UG_TOLERATE_EXIT_NOISE=0 ug exec -- --quit   # force off
 ```
 
 Precedence: CLI flags > `UG_TOLERATE_EXIT_NOISE` > project `ug.toml` chain >
-machine `config.json` > off. `.ugrc` is still only the version pin.
+machine `$UG_ROOT/ug.toml` > off. `.ugrc` is still only the version pin.
 `ug` never injects `--disable-crash-handler` or mutes OS crash dialogs.
 
 Want the editor as plain `godot`? Put the managed shim on your `PATH` (optional;
@@ -163,13 +163,18 @@ team on the same Godot.
 
 ### Project settings (`ug.toml`)
 
-Optional boolean preferences for the current directory tree live in `ug.toml`
-(not `.ugrc`). Every ancestor `ug.toml` from the filesystem root down to the
-cwd is loaded; **closer files override farther ones** for each key. Machine
-defaults still come from `ug config` (`$UG_ROOT/config.json`).
+Optional boolean preferences use the same `ug.toml` format in two places:
+
+| Location | Role |
+| --- | --- |
+| `$UG_ROOT/ug.toml` | Machine defaults (`ug config get` / `set`) |
+| Project tree `ug.toml` | Sparse overrides; closer dir wins per key |
+
+`.ugrc` remains the version pin only. A legacy `$UG_ROOT/config.json` is read
+once and rewritten as machine `ug.toml`.
 
 ```toml
-# ug.toml — project or monorepo root
+# machine or project
 tolerate-exit-noise = true
 # experimental-exit-noise-rules = false
 ```

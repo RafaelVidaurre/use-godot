@@ -137,8 +137,10 @@ Resolution order (first set wins):
 1. CLI `--tolerate-exit-noise` / `--no-tolerate-exit-noise`
 2. `UG_TOLERATE_EXIT_NOISE` (and `UG_EXIT_NOISE_EXPERIMENTAL` for experimental rules)
 3. Project `ug.toml` chain from the filesystem root down to the current directory
-   (closer files override farther ones per key; omitted keys leave parent/machine values)
-4. Machine `$UG_ROOT/config.json` (`ug config get|set`), separate from `state.json`
+   (closer files override farther ones per key; omitted keys leave parent/machine
+   values). Files under `$UG_ROOT` are skipped so machine config is not reapplied.
+4. Machine `$UG_ROOT/ug.toml` (`ug config get|set`), same file format as project
+   settings, separate from `state.json`. Legacy `config.json` is migrated on load.
 5. Default off
 
 `.ugrc` remains a version pin only and is not a settings file. See

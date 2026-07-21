@@ -24,7 +24,8 @@ Compatibility covers more than the Rust library surface:
 
 - command and option names, selector syntax, documented environment variables,
   and exit-status meanings;
-- documented JSON fields and project configuration such as `.ugrc` and `ug.toml`;
+- documented JSON fields and project configuration such as `.ugrc` and `ug.toml`
+  (including machine `$UG_ROOT/ug.toml` and legacy `config.json` migration);
 - managed manifests and state that a newer `ug` must still read safely;
 - installer names and documented non-interactive behavior;
 - public items exported by the `use_godot` Rust library.
