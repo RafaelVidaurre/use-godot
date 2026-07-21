@@ -17,8 +17,8 @@ pub struct ProjectSelector {
 
 /// Merged project settings from the ancestor `ug.toml` chain (child overrides parent).
 ///
-/// Only keys present in at least one file are `Some`. Machine `config.json` fills
-/// gaps when resolving effective policy.
+/// Only keys present in at least one file are `Some`. Machine `$UG_ROOT/ug.toml`
+/// fills gaps when resolving effective policy.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ProjectSettings {
     pub tolerate_exit_noise: Option<bool>,
@@ -81,16 +81,26 @@ pub fn pin(directory: &Path, selector: &str) -> Result<PathBuf> {
 
 /// Load and merge every `ug.toml` from filesystem root ancestors of `start` down
 /// to `start`. Closer files override farther ones for each key independently.
-pub fn load_settings(start: &Path) -> Result<ProjectSettings> {
+///
+/// `skip_under`, when set (normally `$UG_ROOT`), excludes machine-managed
+/// `ug.toml` files so they are not double-applied as project overrides.
+pub fn load_settings(start: &Path, skip_under: Option<&Path>) -> Result<ProjectSettings> {
     let mut directory = start
         .canonicalize()
         .with_context(|| format!("resolve project directory {}", start.display()))?;
+    // Best-effort: if the managed root does not exist yet, there is nothing to skip.
+    let skip_root = skip_under.and_then(|path| path.canonicalize().ok());
 
     let mut chain = Vec::new();
     loop {
         let path = directory.join(PROJECT_CONFIG_FILE);
         if path.is_file() {
-            chain.push(path);
+            let skip = skip_root
+                .as_ref()
+                .is_some_and(|root| path.starts_with(root));
+            if !skip {
+                chain.push(path);
+            }
         } else if path.exists() {
             bail!("{} exists but is not a regular file", path.display());
         }
@@ -160,7 +170,7 @@ mod tests {
         )
         .unwrap();
 
-        let settings = load_settings(&child).unwrap();
+        let settings = load_settings(&child, None).unwrap();
         assert_eq!(settings.tolerate_exit_noise, Some(false));
         assert_eq!(settings.experimental_exit_noise_rules, Some(true));
         assert_eq!(settings.sources.len(), 2);
@@ -175,8 +185,36 @@ mod tests {
     #[test]
     fn project_toml_missing_is_empty_settings() {
         let temp = tempfile::tempdir().unwrap();
-        let settings = load_settings(temp.path()).unwrap();
+        let settings = load_settings(temp.path(), None).unwrap();
         assert_eq!(settings, ProjectSettings::default());
+    }
+
+    #[test]
+    fn project_toml_skips_files_under_managed_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed = temp.path().join("managed");
+        let project = temp.path().join("project");
+        fs::create_dir_all(managed.join("nested")).unwrap();
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            managed.join(PROJECT_CONFIG_FILE),
+            "tolerate-exit-noise = true\n",
+        )
+        .unwrap();
+        fs::write(
+            project.join(PROJECT_CONFIG_FILE),
+            "tolerate-exit-noise = false\n",
+        )
+        .unwrap();
+
+        // cwd under managed would otherwise see managed/ug.toml as project config.
+        let nested = managed.join("nested");
+        let settings = load_settings(&nested, Some(&managed)).unwrap();
+        assert_eq!(settings, ProjectSettings::default());
+
+        let settings = load_settings(&project, Some(&managed)).unwrap();
+        assert_eq!(settings.tolerate_exit_noise, Some(false));
+        assert_eq!(settings.sources.len(), 1);
     }
 
     #[test]
@@ -187,7 +225,7 @@ mod tests {
             "not-a-real-key = true\n",
         )
         .unwrap();
-        let err = load_settings(temp.path()).unwrap_err().to_string();
+        let err = load_settings(temp.path(), None).unwrap_err().to_string();
         assert!(
             err.contains("parse") || err.contains("unknown"),
             "unexpected error: {err}"

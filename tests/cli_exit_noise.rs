@@ -57,7 +57,7 @@ fn config_get_json_and_path() {
         .args(["--json", "config", "path"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("config.json"));
+        .stdout(predicate::str::contains("ug.toml"));
 
     ug(root.path())
         .args(["--quiet", "config", "set", "tolerate-exit-noise", "1"])
@@ -197,6 +197,34 @@ fn ug_toml_unknown_key_errors() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("parse"));
+}
+
+#[test]
+fn legacy_config_json_migrates_to_machine_ug_toml() {
+    let root = tempdir().unwrap();
+    fs::create_dir_all(root.path()).unwrap();
+    fs::write(
+        root.path().join("config.json"),
+        r#"{"tolerate_exit_noise":true,"experimental_exit_noise_rules":false}"#,
+    )
+    .unwrap();
+
+    ug(root.path())
+        .args(["config", "get"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("tolerate-exit-noise: true"));
+
+    assert!(root.path().join("ug.toml").is_file());
+    assert!(!root.path().join("config.json").exists());
+    let body = fs::read_to_string(root.path().join("ug.toml")).unwrap();
+    assert!(body.contains("tolerate-exit-noise = true"));
+
+    ug(root.path())
+        .args(["--json", "config", "path"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ug.toml"));
 }
 
 #[cfg(unix)]
