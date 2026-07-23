@@ -70,13 +70,18 @@ pub fn read(path: &Path) -> Result<String> {
 }
 
 pub fn pin(directory: &Path, selector: &str) -> Result<PathBuf> {
+    let selector = normalized_selector(selector)?;
+    let path = directory.join(PROJECT_FILE);
+    crate::atomic::write_text(&path, &format!("{selector}\n"))?;
+    Ok(path)
+}
+
+pub fn normalized_selector(selector: &str) -> Result<&str> {
     let selector = selector.trim();
     if selector.is_empty() || selector.chars().any(char::is_whitespace) {
         bail!("project selector must be one non-empty value without whitespace");
     }
-    let path = directory.join(PROJECT_FILE);
-    crate::atomic::write_text(&path, &format!("{selector}\n"))?;
-    Ok(path)
+    Ok(selector)
 }
 
 /// Load and merge every `ug.toml` from filesystem root ancestors of `start` down

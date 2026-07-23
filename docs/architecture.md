@@ -30,8 +30,8 @@ silently changing an established environment.
 
 - `model`: version/channel/variant identities and persisted manifests.
 - `resolve`: installed selector and alias resolution with cycle/ambiguity checks.
-- `project`: atomic `.ugrc` pin writes, nearest-parent pin discovery, and
-  hierarchical `ug.toml` settings (child overrides parent).
+- `project`: selector-shape checks, atomic `.ugrc` pin writes, nearest-parent pin
+  discovery, and hierarchical `ug.toml` settings (child overrides parent).
 - `remote`: cached GitHub release discovery and official asset mapping.
 - `install`: streaming hash verification, secure extraction, local import, and
   atomic installation commit.
@@ -40,6 +40,10 @@ silently changing an established environment.
 
 The platform, architecture, release API, and entire managed filesystem root are
 inputs. Tests therefore exercise real command paths without machine state.
+Before `main` delegates an atomic pin write to `project`, it accepts an installed
+selector or alias directly; otherwise it resolves the release portion against
+`remote` and validates any variant suffix. Validation failure leaves an existing
+project file untouched.
 
 ## Authoritative upstream decisions
 

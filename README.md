@@ -150,8 +150,12 @@ cd my-game
 ug pin 4.7@mono
 ```
 
-That writes `.ugrc`. From that directory (or below it), these commands pick up
-the pin when you omit a version:
+`pin` first verifies that the selector resolves to an installed build or a
+known official Godot release, then writes `.ugrc` atomically. This still allows
+you to pin an official release before installing it, including import-only
+variants such as `@double`. Use `--refresh` to bypass cached release metadata.
+From that directory (or below it), these commands pick up the pin when you omit
+a version:
 
 ```sh
 ug install
