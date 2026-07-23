@@ -359,6 +359,47 @@ pub fn mock_release_server(archive: Vec<u8>, digest: String) -> MockReleaseServe
     mock_release_server_with_size(archive, digest, advertised_size)
 }
 
+pub fn mock_release_catalog(tags: &[(&str, bool)]) -> MockReleaseServer {
+    let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
+    let base_url = format!("http://{}", server.server_addr());
+    let body = serde_json::Value::Array(
+        tags.iter()
+            .map(|(tag, prerelease)| {
+                serde_json::json!({
+                    "tag_name": tag,
+                    "draft": false,
+                    "prerelease": prerelease,
+                    "published_at": "2026-06-18T00:00:00Z",
+                    "assets": []
+                })
+            })
+            .collect(),
+    )
+    .to_string();
+    let handle = thread::spawn(move || {
+        let request = server
+            .recv_timeout(SERVER_TIMEOUT)
+            .map_err(|error| format!("receive release catalog request: {error}"))?
+            .ok_or_else(|| "timed out waiting for release catalog request".to_owned())?;
+        if !request.url().starts_with("/releases?") {
+            return Err(format!(
+                "expected release catalog request, got {}",
+                request.url()
+            ));
+        }
+        request
+            .respond(
+                Response::from_string(body)
+                    .with_header(Header::from_bytes("Content-Type", "application/json").unwrap()),
+            )
+            .map_err(|error| format!("respond to release catalog request: {error}"))
+    });
+    MockReleaseServer {
+        base_url,
+        handle: Some(handle),
+    }
+}
+
 pub fn paused_release_server(archive: Vec<u8>, digest: String) -> PausedReleaseServer {
     let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
     let base_url = format!("http://{}", server.server_addr());

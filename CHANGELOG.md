@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reject `ug pin` selectors that match neither an installed build nor a known
+  official Godot release, without replacing an existing `.ugrc`.
 - Opt-in tolerate known Godot exit noise for `ug exec` (wrap + fail-closed rules).
 - Add hierarchical project settings via `ug.toml` (child overrides parent) layered
   over machine `$UG_ROOT/ug.toml`, with CLI/env still winning for exit-noise policy.

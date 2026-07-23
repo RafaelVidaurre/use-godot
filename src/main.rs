@@ -20,7 +20,7 @@ use use_godot::{
     install::{self, InstallOptions, InstallReporter},
     project,
     remote::ReleaseCatalog,
-    resolve_installed,
+    resolve::{expand_alias, resolve_installed},
     state::load_installations,
 };
 
@@ -118,10 +118,15 @@ enum Commands {
         #[arg(last = true, required = true)]
         args: Vec<String>,
     },
-    /// Write a project selector to .ugrc in the current directory.
+    /// Validate and write a project selector to .ugrc in the current directory.
     Pin {
-        /// Selector stored verbatim, such as 4.7@mono or 4.8-beta.
+        /// Known Godot selector, such as 4.7@mono or 4.8-beta.
         selector: String,
+        /// Refresh cached official release metadata.
+        #[arg(long)]
+        refresh: bool,
+        #[arg(long, hide = true, env = "UG_RELEASE_API")]
+        api_base: Option<String>,
     },
     /// Remove an installed version.
     Uninstall {
@@ -401,7 +406,13 @@ fn run(cli: Cli) -> Result<u8> {
             return exec::run_godot(&item.binary, &args, policy);
         }
         Commands::Config { command } => config_command(flags, &paths, policy_cli, command)?,
-        Commands::Pin { selector } => {
+        Commands::Pin {
+            selector,
+            refresh,
+            api_base,
+        } => {
+            let selector = project::normalized_selector(&selector)?.to_owned();
+            validate_pin_selector(&paths, &selector, refresh, api_base.as_deref())?;
             let directory = env::current_dir().context("read current directory")?;
             let path = project::pin(&directory, &selector)?;
             if flags.json {
@@ -418,6 +429,39 @@ fn run(cli: Cli) -> Result<u8> {
         Commands::Shell { command } => shell_command(&paths, command)?,
     }
     Ok(0)
+}
+
+fn validate_pin_selector(
+    paths: &Paths,
+    selector: &str,
+    refresh: bool,
+    api_base: Option<&str>,
+) -> Result<()> {
+    let state = State::load(paths)?;
+    let installations = load_installations(paths)?;
+    if resolve_installed(selector, &state, &installations).is_ok() {
+        return Ok(());
+    }
+
+    let expanded = expand_alias(selector, &state)?;
+    if expanded != selector {
+        bail!("alias '{selector}' does not resolve to an installed Godot version");
+    }
+    if expanded.contains('+') {
+        bail!("installed Godot version '{selector}' was not found");
+    }
+
+    let release_selector = match expanded.rsplit_once('@') {
+        Some((release, variant)) => {
+            variant.parse::<Variant>()?;
+            release
+        }
+        None => expanded.as_str(),
+    };
+    ReleaseCatalog::fetch(paths, refresh, api_base)?
+        .resolve(release_selector, true)
+        .with_context(|| format!("cannot pin unknown Godot version '{selector}'"))?;
+    Ok(())
 }
 
 #[derive(Clone, Copy)]

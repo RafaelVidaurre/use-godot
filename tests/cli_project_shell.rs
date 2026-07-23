@@ -5,7 +5,7 @@ use std::fs;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-use support::{fake_godot, isolated_ug, shim_path, ug};
+use support::{fake_godot, isolated_ug, mock_release_catalog, shim_path, ug};
 
 #[test]
 fn shell_integration_is_explicit_for_zsh_bash_and_fish() {
@@ -45,15 +45,17 @@ fn project_file_drives_install_use_which_and_exec() {
     let root = TempDir::new().unwrap();
     let project = TempDir::new().unwrap();
     let sources = TempDir::new().unwrap();
+    let catalog = mock_release_catalog(&[("4.7-stable", false)]);
     let child = project.path().join("game/levels");
     fs::create_dir_all(&child).unwrap();
     let double = fake_godot(&sources, "Godot-double");
 
     ug(root.path())
         .current_dir(project.path())
-        .args(["pin", "4.7@double"])
+        .args(["pin", "4.7@double", "--api-base", &catalog.base_url])
         .assert()
         .success();
+    catalog.finish();
     assert_eq!(
         fs::read_to_string(project.path().join(".ugrc")).unwrap(),
         "4.7@double\n"
@@ -82,6 +84,63 @@ fn project_file_drives_install_use_which_and_exec() {
         .assert()
         .success()
         .stdout("fake:--editor project.godot\n");
+}
+
+#[test]
+fn pin_requires_a_known_release_and_preserves_an_existing_project_file() {
+    let root = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+    let project_file = project.path().join(".ugrc");
+    fs::write(&project_file, "4.6\n").unwrap();
+    let catalog = mock_release_catalog(&[("4.7-stable", false), ("4.8-beta2", true)]);
+
+    ug(root.path())
+        .current_dir(project.path())
+        .args(["pin", "9.9", "--api-base", &catalog.base_url])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot pin unknown Godot version '9.9'",
+        ));
+    catalog.finish();
+
+    assert_eq!(fs::read_to_string(&project_file).unwrap(), "4.6\n");
+}
+
+#[test]
+fn pin_accepts_known_prereleases_before_installation() {
+    let root = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+    let catalog = mock_release_catalog(&[("4.8-beta2", true)]);
+
+    ug(root.path())
+        .current_dir(project.path())
+        .args(["pin", "4.8-beta2@mono", "--api-base", &catalog.base_url])
+        .assert()
+        .success();
+    catalog.finish();
+
+    assert_eq!(
+        fs::read_to_string(project.path().join(".ugrc")).unwrap(),
+        "4.8-beta2@mono\n"
+    );
+}
+
+#[test]
+fn pin_rejects_an_unknown_variant_without_touching_the_project_file() {
+    let root = TempDir::new().unwrap();
+    let project = TempDir::new().unwrap();
+    let project_file = project.path().join(".ugrc");
+    fs::write(&project_file, "4.7\n").unwrap();
+
+    ug(root.path())
+        .current_dir(project.path())
+        .args(["pin", "4.7@editor"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown variant 'editor'"));
+
+    assert_eq!(fs::read_to_string(project_file).unwrap(), "4.7\n");
 }
 
 #[test]
