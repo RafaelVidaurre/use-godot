@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1 - 2026-07-24
+
 - Reject `ug pin` selectors that match neither an installed build nor a known
   official Godot release, without replacing an existing `.ugrc`.
 - Opt-in tolerate known Godot exit noise for `ug exec` (wrap + fail-closed rules).
