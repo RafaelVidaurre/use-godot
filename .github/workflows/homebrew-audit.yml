@@ -30,12 +30,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out release tooling
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: use-godot
 
       - name: Check out tap
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: RafaelVidaurre/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -87,7 +87,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out tap
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: RafaelVidaurre/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
