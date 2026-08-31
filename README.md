@@ -265,9 +265,12 @@ on disk. Default variant is `standard`. Import-only: `double`, `godotjs`, and
 current/which/pin/uninstall, doctor, and config. Mutations return the changed or
 removed object. `exec` preserves Godot's stdout/stderr and `shell` emits sourceable
 text, so both reject `--json` instead of silently ignoring it.
+Installation objects always encode `identity.version`, `identity.channel`, and
+`identity.variant` as selector-shaped strings such as `4.8.0`, `beta2`, and
+`custom:studio`.
 
-Exit codes: `1` on error, `2` from `doctor` when state is unhealthy, and
-`exec` passes through the child process status.
+Exit codes: `1` on operation errors; `2` for invalid CLI usage or from `doctor`
+when state is unhealthy; `exec` passes through the child process status.
 
 ## Shell integration (optional)
 

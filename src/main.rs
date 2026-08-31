@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     env, fs,
     io::{self, IsTerminal},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::Duration,
 };
@@ -13,7 +13,7 @@ use clap_complete::{Shell, generate};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use use_godot::{
-    Paths, State, Variant,
+    Installation, Paths, State, Variant,
     atomic::StateLock,
     config::{self, CliPolicyOverrides, UserConfig},
     exec,
@@ -42,10 +42,10 @@ struct Cli {
     /// Suppress ug's routine output and progress; never suppress Godot output.
     #[arg(short, long, global = true)]
     quiet: bool,
-    /// Wrap Godot and tolerate known exit noise (overrides config / env when set).
+    /// Override exit-noise tolerance for exec and config get --effective.
     #[arg(long, global = true, action = ArgAction::SetTrue, overrides_with = "no_tolerate_exit_noise")]
     tolerate_exit_noise: bool,
-    /// Disable exit-noise tolerance for this invocation.
+    /// Disable exit-noise tolerance for exec and config get --effective.
     #[arg(long, global = true, action = ArgAction::SetTrue, overrides_with = "tolerate_exit_noise")]
     no_tolerate_exit_noise: bool,
     #[command(subcommand)]
@@ -132,7 +132,7 @@ enum Commands {
     },
     /// Validate and write a project selector to .ugrc in the current directory.
     Pin {
-        /// Installed selector or alias, or a known official release such as 4.8-beta@double.
+        /// Installed selector or alias, or a known Godot release with any valid variant.
         selector: String,
         /// Refresh cached official release metadata.
         #[arg(long)]
@@ -305,7 +305,7 @@ fn run(cli: Cli) -> Result<u8> {
             );
             progress.finish();
             let item = result?;
-            output(
+            output_installation(
                 flags,
                 &item,
                 format!("Installed {}", item.identity.display_short()),
@@ -336,6 +336,7 @@ fn run(cli: Cli) -> Result<u8> {
                 let state = State::load(&paths)?;
                 let items = load_installations(&paths)?;
                 if flags.json {
+                    let items = items.iter().map(InstallationJson::from).collect::<Vec<_>>();
                     print_json(&items)?;
                 } else if !flags.quiet {
                     for item in items {
@@ -364,9 +365,9 @@ fn run(cli: Cli) -> Result<u8> {
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
             use_godot::state::activate(&paths, &mut state, item, false)?;
-            output(
+            output_installation(
                 flags,
-                &item,
+                item,
                 format!("using {}", item.identity.display_short()),
             )?;
         }
@@ -386,9 +387,9 @@ fn run(cli: Cli) -> Result<u8> {
                 let items = load_installations(&paths)?;
                 let item = resolve_installed(&selector, &state, &items)?;
                 use_godot::state::activate(&paths, &mut state, item, true)?;
-                output(
+                output_installation(
                     flags,
-                    &item,
+                    item,
                     format!("default {}", item.identity.display_short()),
                 )?;
             } else if let Some(value) = &state.default {
@@ -409,7 +410,7 @@ fn run(cli: Cli) -> Result<u8> {
                 .iter()
                 .find(|i| i.identity.canonical() == canonical)
                 .context("active installation is missing; run `ug doctor`")?;
-            output(flags, item, item.identity.display_short())?;
+            output_installation(flags, item, item.identity.display_short())?;
         }
         Commands::Which { selector } => {
             let state = State::load(&paths)?;
@@ -417,7 +418,7 @@ fn run(cli: Cli) -> Result<u8> {
             let selector = selector_or_project_or_state(selector, &state)?;
             let item = resolve_installed(&selector, &state, &items)?;
             if flags.json {
-                print_json(item)?;
+                print_json(&InstallationJson::from(item))?;
             } else {
                 println!("{}", item.binary.display());
             }
@@ -506,6 +507,42 @@ fn validate_pin_selector(
 struct OutputFlags {
     json: bool,
     quiet: bool,
+}
+
+#[derive(Serialize)]
+struct InstallationJson<'a> {
+    identity: IdentityJson<'a>,
+    binary: &'a Path,
+    source: &'a use_godot::model::InstallSource,
+    installed_at_unix: u64,
+    sha256: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+struct IdentityJson<'a> {
+    version: String,
+    channel: String,
+    variant: String,
+    platform: &'a str,
+    arch: &'a str,
+}
+
+impl<'a> From<&'a Installation> for InstallationJson<'a> {
+    fn from(installation: &'a Installation) -> Self {
+        Self {
+            identity: IdentityJson {
+                version: installation.identity.version.to_string(),
+                channel: installation.identity.channel.to_string(),
+                variant: installation.identity.variant.to_string(),
+                platform: &installation.identity.platform,
+                arch: &installation.identity.arch,
+            },
+            binary: &installation.binary,
+            source: &installation.source,
+            installed_at_unix: installation.installed_at_unix,
+            sha256: installation.sha256.as_deref(),
+        }
+    }
 }
 
 fn config_command(
@@ -709,7 +746,7 @@ fn alias_command(flags: OutputFlags, paths: &Paths, command: AliasCommand) -> Re
         AliasCommand::Resolve { name } => {
             let items = load_installations(paths)?;
             let item = resolve_installed(&name, &state, &items)?;
-            output(flags, item, item.identity.canonical())?;
+            output_installation(flags, item, item.identity.canonical())?;
         }
     }
     Ok(())
@@ -730,7 +767,7 @@ fn uninstall(flags: OutputFlags, paths: &Paths, selector: &str, force: bool) -> 
         );
     }
     use_godot::state::uninstall(paths, &mut state, &canonical)?;
-    output(
+    output_installation(
         flags,
         item,
         format!("uninstalled {}", item.identity.display_short()),
@@ -931,21 +968,24 @@ fn lock(paths: &Paths) -> Result<StateLock> {
 }
 
 fn selector_or_project(explicit: Option<String>) -> Result<String> {
-    if let Some(selector) = explicit {
-        return Ok(selector);
-    }
-    project_selector()?
+    explicit_or_project(explicit)?
         .context("no selector provided and no .ugrc found in this directory or its parents")
 }
 
 fn selector_or_project_or_state(explicit: Option<String>, state: &State) -> Result<String> {
+    explicit_or_project(explicit)?
+        .or_else(|| state.active.clone())
+        .or_else(|| state.default.clone())
+        .context(
+            "no Godot version selected; pass a selector, add .ugrc, or run `ug use <selector>`",
+        )
+}
+
+fn explicit_or_project(explicit: Option<String>) -> Result<Option<String>> {
     match explicit {
-        Some(selector) => Some(selector),
-        None => project_selector()?,
+        Some(selector) => Ok(Some(selector)),
+        None => project_selector(),
     }
-    .or_else(|| state.active.clone())
-    .or_else(|| state.default.clone())
-    .context("no Godot version selected; pass a selector, add .ugrc, or run `ug use <selector>`")
 }
 
 fn project_selector() -> Result<Option<String>> {
@@ -996,9 +1036,13 @@ fn print_json(value: &impl Serialize) -> Result<()> {
     println!();
     Ok(())
 }
-fn output(flags: OutputFlags, value: &impl Serialize, text: String) -> Result<()> {
+fn output_installation(
+    flags: OutputFlags,
+    installation: &Installation,
+    text: String,
+) -> Result<()> {
     if flags.json {
-        print_json(value)
+        print_json(&InstallationJson::from(installation))
     } else if !flags.quiet {
         println!("{text}");
         Ok(())

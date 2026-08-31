@@ -10,6 +10,8 @@
   forced uninstall cleanup, shell arguments, and JSON support.
 - Emit JSON for default clearing, alias mutations, and uninstall; explicitly
   reject JSON for raw `exec` and `shell` output.
+- Keep CLI installation identity fields as selector-shaped strings for every
+  channel and variant, including prereleases, GodotJS, and custom builds.
 
 ## 0.2.1 - 2026-07-24
 

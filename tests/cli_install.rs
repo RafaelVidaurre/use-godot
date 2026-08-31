@@ -1,6 +1,6 @@
 mod support;
 
-use std::fs;
+use std::{collections::BTreeSet, fs};
 
 use predicates::prelude::*;
 use tempfile::TempDir;
@@ -31,13 +31,22 @@ fn all_non_official_variant_families_import_independently() {
             .assert()
             .success();
     }
-    ug(root.path())
+    let output = ug(root.path())
         .args(["list", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("double"))
-        .stdout(predicate::str::contains("godot-js"))
-        .stdout(predicate::str::contains("studio"));
+        .get_output()
+        .stdout
+        .clone();
+    let installations: Vec<serde_json::Value> = serde_json::from_slice(&output).unwrap();
+    let variants = installations
+        .iter()
+        .map(|item| item["identity"]["variant"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        variants,
+        BTreeSet::from(["custom:studio", "double", "godotjs"])
+    );
 }
 
 #[test]

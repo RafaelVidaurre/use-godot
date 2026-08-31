@@ -118,6 +118,11 @@ shell code; those two command families reject `--json` explicitly. `--quiet`
 suppresses routine `ug` output and progress but never changes JSON or
 child-process output.
 
+CLI installation objects serialize version, channel, and variant as stable
+selector-shaped strings (`4.8.0`, `beta2`, `godotjs`, `custom:studio`). This
+output view is separate from the backward-compatible manifest representation
+used on disk.
+
 ## Portability boundaries
 
 The core and release mapping include macOS, Linux, and Windows naming. Native CI

@@ -6,8 +6,8 @@ use predicates::prelude::*;
 use tempfile::TempDir;
 
 use support::{
-    assert_shim_targets, fake_godot, godot_zip, paused_release_server, sha256, shim_path, ug,
-    ug_process,
+    assert_shim_targets, fake_godot, fake_godot_with_exit, godot_zip, paused_release_server,
+    sha256, shim_path, ug, ug_process,
 };
 
 #[test]
@@ -136,6 +136,50 @@ fn exec_without_selector_uses_active_version_without_project_pin() {
         .assert()
         .success()
         .stdout("fake:--editor project.godot\n");
+}
+
+#[test]
+fn which_and_exec_follow_explicit_project_active_default_precedence() {
+    let root = TempDir::new().unwrap();
+    let sources = TempDir::new().unwrap();
+    let installations = [
+        ("4.4@double", "Godot-default", 41),
+        ("4.5@double", "Godot-active", 42),
+        ("4.6@double", "Godot-project", 43),
+        ("4.7@double", "Godot-explicit", 44),
+    ];
+
+    for (selector, name, code) in installations {
+        let source = fake_godot_with_exit(&sources, name, code);
+        ug(root.path())
+            .args(["--quiet", "install", selector, "--from"])
+            .arg(source)
+            .assert()
+            .success();
+    }
+
+    ug(root.path())
+        .args(["--quiet", "default", "4.4@double"])
+        .assert()
+        .success();
+    ug(root.path())
+        .args(["--quiet", "use", "4.5@double"])
+        .assert()
+        .success();
+    let project_file = root.path().join(".test-environment/cwd/.ugrc");
+    fs::write(&project_file, "4.6@double\n").unwrap();
+
+    assert_resolution(root.path(), Some("4.7@double"), "Godot-explicit", 44);
+    assert_resolution(root.path(), None, "Godot-project", 43);
+
+    fs::remove_file(project_file).unwrap();
+    assert_resolution(root.path(), None, "Godot-active", 42);
+
+    ug(root.path())
+        .args(["--quiet", "uninstall", "4.5@double", "--force"])
+        .assert()
+        .success();
+    assert_resolution(root.path(), None, "Godot-default", 41);
 }
 
 #[test]
@@ -277,4 +321,30 @@ fn which(root: &std::path::Path, selector: &str) -> std::path::PathBuf {
     let output = ug(root).args(["which", selector]).output().unwrap();
     assert!(output.status.success());
     std::path::PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+}
+
+fn assert_resolution(
+    root: &std::path::Path,
+    selector: Option<&str>,
+    expected_binary_name: &str,
+    expected_exit_code: i32,
+) {
+    let mut which = ug(root);
+    which.arg("which");
+    if let Some(selector) = selector {
+        which.arg(selector);
+    }
+    which
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(expected_binary_name));
+
+    let mut exec = ug(root);
+    exec.arg("exec");
+    if let Some(selector) = selector {
+        exec.arg(selector);
+    }
+    exec.args(["--", "--version"])
+        .assert()
+        .code(expected_exit_code);
 }
