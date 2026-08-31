@@ -25,15 +25,21 @@ use use_godot::{
 };
 
 #[derive(Parser, Debug)]
-#[command(name = "ug", version, about = "Use Godot versions safely", long_about = None)]
+#[command(
+    name = "ug",
+    version,
+    about = "Use Godot versions safely",
+    long_about = "Install verified Godot builds, keep variants side by side, select the managed godot shim, and run one-off commands. Project .ugrc pins are optional; command help documents each omitted-selector fallback.",
+    after_long_help = "Examples:\n  ug install 4.7                 Install the latest stable Godot 4.7\n  ug use 4.7                     Select it for the managed godot shim\n  ug exec -- --version           Run the active build without switching\n  ug pin 4.7@mono                Pin a project to the .NET build\n  ug help <COMMAND>              Show complete command help"
+)]
 struct Cli {
     /// Override the managed data directory.
     #[arg(long, global = true, env = "UG_ROOT", value_name = "DIR")]
     root: Option<PathBuf>,
-    /// Emit machine-readable JSON where supported.
+    /// Emit JSON for data commands; not supported by exec or shell.
     #[arg(long, global = true)]
     json: bool,
-    /// Suppress routine human-readable output and progress.
+    /// Suppress ug's routine output and progress; never suppress Godot output.
     #[arg(short, long, global = true)]
     quiet: bool,
     /// Wrap Godot and tolerate known exit noise (overrides config / env when set).
@@ -53,13 +59,13 @@ enum Commands {
         after_long_help = "Examples:\n  ug install 4              Latest stable Godot 4\n  ug install 4.7            Latest stable Godot 4.7\n  ug install 4.7.1          Exact stable version\n  ug install 4.8-beta       Latest 4.8 beta\n  ug install 4.7@mono       Official .NET build\n  ug install                Selector from .ugrc\n  ug install 4.7@double --from /path/to/Godot.app"
     )]
     Install {
-        /// Selector: latest, MAJOR[.MINOR[.PATCH]][-CHANNEL[N]][@VARIANT].
+        /// Selector: latest, MAJOR[.MINOR[.PATCH]][-CHANNEL[N]][@VARIANT]. Uses .ugrc when omitted; otherwise errors.
         #[arg(value_name = "SELECTOR")]
         selector: Option<String>,
         /// Variant: standard, mono, double, godotjs, or custom:NAME.
         #[arg(long, value_name = "VARIANT")]
         variant: Option<Variant>,
-        /// Import a local executable or application bundle instead of downloading.
+        /// Import a file, or a bundle/directory for double, godotjs, and custom variants.
         #[arg(long, value_name = "PATH")]
         from: Option<PathBuf>,
         /// Required SHA-256 for single-file standard or mono imports.
@@ -93,12 +99,14 @@ enum Commands {
     },
     /// Select an installed version for the managed godot shim.
     Use {
-        /// Installed selector; reads .ugrc when omitted.
+        /// Installed selector. Uses the nearest .ugrc when omitted; otherwise errors.
         selector: Option<String>,
     },
-    /// Get, set, or clear the default selection.
+    /// Show the default, set and activate it, or clear it.
     Default {
+        /// Installed selector to store as the default and make active.
         selector: Option<String>,
+        /// Clear the stored default without changing the active selection.
         #[arg(long, conflicts_with = "selector")]
         unset: bool,
     },
@@ -114,16 +122,17 @@ enum Commands {
         /// Installed selector. When omitted: nearest .ugrc, active selection, then default.
         selector: Option<String>,
     },
-    /// Run one command with an installed Godot without switching.
+    /// Run Godot without changing the active selection.
     Exec {
         /// Installed selector. When omitted: nearest .ugrc, active selection, then default.
         selector: Option<String>,
+        /// Arguments passed unchanged to Godot after --.
         #[arg(last = true, required = true)]
         args: Vec<String>,
     },
     /// Validate and write a project selector to .ugrc in the current directory.
     Pin {
-        /// Known Godot selector, such as 4.7@mono or 4.8-beta.
+        /// Installed selector or alias, or a known official release such as 4.8-beta@double.
         selector: String,
         /// Refresh cached official release metadata.
         #[arg(long)]
@@ -131,9 +140,11 @@ enum Commands {
         #[arg(long, hide = true, env = "UG_RELEASE_API")]
         api_base: Option<String>,
     },
-    /// Remove an installed version.
+    /// Remove an installed version and aliases that point to it.
     Uninstall {
+        /// Installed selector or alias to remove.
         selector: String,
+        /// Allow removing the active/default version and clear those references.
         #[arg(long)]
         force: bool,
     },
@@ -144,7 +155,7 @@ enum Commands {
         #[command(subcommand)]
         command: ConfigCommand,
     },
-    /// Show or emit optional shell integration.
+    /// Show or emit optional shell integration as plain text.
     Shell {
         #[command(subcommand)]
         command: ShellCommand,
@@ -153,10 +164,11 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum ConfigCommand {
-    /// Print the machine ug.toml path.
+    /// Print the canonical machine ug.toml path without creating it.
     Path,
-    /// Print machine config values. Use --effective for CLI/env/project/machine policy.
+    /// Print machine values and project overrides.
     Get {
+        /// Also resolve CLI, environment, project, and machine precedence.
         #[arg(long)]
         effective: bool,
     },
@@ -171,10 +183,25 @@ enum ConfigCommand {
 
 #[derive(Subcommand, Debug)]
 enum AliasCommand {
-    Set { name: String, selector: String },
-    Remove { name: String },
+    /// Create or replace an alias resolved to one installed build.
+    Set {
+        /// Alias name to create or replace.
+        name: String,
+        /// Installed selector or existing alias to resolve now.
+        selector: String,
+    },
+    /// Remove a named alias.
+    Remove {
+        /// Alias name to remove.
+        name: String,
+    },
+    /// List aliases and their canonical installed identities.
     List,
-    Resolve { name: String },
+    /// Resolve an alias to its installed build.
+    Resolve {
+        /// Alias name to resolve.
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -183,11 +210,13 @@ enum ShellCommand {
     Path,
     /// Emit PATH setup and ug completions for the selected shell.
     Init {
+        /// Shell syntax to emit: bash, fish, or zsh.
         #[arg(value_enum)]
         shell: IntegrationShell,
     },
     /// Generate a completion script without changing PATH.
     Completions {
+        /// Shell to generate completions for.
         #[arg(value_enum)]
         shell: Shell,
     },
@@ -348,7 +377,9 @@ fn run(cli: Cli) -> Result<u8> {
             if unset {
                 state.default = None;
                 state.save(&paths)?;
-                if !flags.quiet {
+                if flags.json {
+                    print_json(&serde_json::json!({ "default": null }))?;
+                } else if !flags.quiet {
                     println!("default cleared");
                 }
             } else if let Some(selector) = selector {
@@ -392,6 +423,11 @@ fn run(cli: Cli) -> Result<u8> {
             }
         }
         Commands::Exec { selector, args } => {
+            if flags.json {
+                bail!(
+                    "--json is not supported by `ug exec`; Godot output is passed through unchanged"
+                );
+            }
             let state = State::load(&paths)?;
             let selector = selector_or_project_or_state(selector, &state)?;
             let items = load_installations(&paths)?;
@@ -423,7 +459,12 @@ fn run(cli: Cli) -> Result<u8> {
         }
         Commands::Uninstall { selector, force } => uninstall(flags, &paths, &selector, force)?,
         Commands::Doctor => return doctor(flags, &paths),
-        Commands::Shell { command } => shell_command(&paths, command)?,
+        Commands::Shell { command } => {
+            if flags.json {
+                bail!("--json is not supported by `ug shell`; shell code and paths are plain text");
+            }
+            shell_command(&paths, command)?;
+        }
     }
     Ok(0)
 }
@@ -636,11 +677,12 @@ fn alias_command(flags: OutputFlags, paths: &Paths, command: AliasCommand) -> Re
             }
             let items = load_installations(paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
-            state
-                .aliases
-                .insert(name.clone(), item.identity.canonical());
+            let canonical = item.identity.canonical();
+            state.aliases.insert(name.clone(), canonical.clone());
             state.save(paths)?;
-            if !flags.quiet {
+            if flags.json {
+                print_json(&BTreeMap::from([(name.clone(), canonical)]))?;
+            } else if !flags.quiet {
                 println!("{name} -> {}", item.identity.display_short());
             }
         }
@@ -649,7 +691,9 @@ fn alias_command(flags: OutputFlags, paths: &Paths, command: AliasCommand) -> Re
                 bail!("alias '{name}' does not exist");
             }
             state.save(paths)?;
-            if !flags.quiet {
+            if flags.json {
+                print_json(&serde_json::json!({ "removed": name }))?;
+            } else if !flags.quiet {
                 println!("removed alias {name}");
             }
         }
@@ -686,9 +730,11 @@ fn uninstall(flags: OutputFlags, paths: &Paths, selector: &str, force: bool) -> 
         );
     }
     use_godot::state::uninstall(paths, &mut state, &canonical)?;
-    if !flags.quiet {
-        println!("uninstalled {}", item.identity.display_short());
-    }
+    output(
+        flags,
+        item,
+        format!("uninstalled {}", item.identity.display_short()),
+    )?;
     Ok(())
 }
 
@@ -983,6 +1029,48 @@ impl From<&use_godot::Release> for RemoteRow {
             tag: r.tag_name.clone(),
             prerelease: r.prerelease,
             published_at: r.published_at.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod cli_help_tests {
+    use clap::Command;
+
+    use super::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn every_visible_command_and_argument_has_help() {
+        let mut root = Cli::command();
+        root.build();
+        assert_complete_help(&root, "ug");
+    }
+
+    fn assert_complete_help(command: &Command, path: &str) {
+        for argument in command.get_arguments().filter(|arg| !arg.is_hide_set()) {
+            let help = argument
+                .get_help()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            assert!(
+                !help.trim().is_empty(),
+                "visible argument '{}' has no help in '{path}'",
+                argument.get_id()
+            );
+        }
+
+        for subcommand in command.get_subcommands().filter(|sub| !sub.is_hide_set()) {
+            let subcommand_path = format!("{path} {}", subcommand.get_name());
+            let about = subcommand
+                .get_about()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            assert!(
+                !about.trim().is_empty(),
+                "visible command '{subcommand_path}' has no help"
+            );
+            assert_complete_help(subcommand, &subcommand_path);
         }
     }
 }

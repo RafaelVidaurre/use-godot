@@ -109,6 +109,15 @@ hidden staging/trash evidence, never a half-populated canonical installation;
 Automated operations remain inside the injected managed root. Shell integration
 is emitted to standard output and never assumes or edits a startup file.
 
+## CLI output contracts
+
+Data commands honor global `--json`, including state mutations such as alias
+changes, clearing a default, and uninstalling a build. `ug exec` must preserve
+Godot's stdout/stderr byte-for-byte, while `ug shell` emits paths or sourceable
+shell code; those two command families reject `--json` explicitly. `--quiet`
+suppresses routine `ug` output and progress but never changes JSON or
+child-process output.
+
 ## Portability boundaries
 
 The core and release mapping include macOS, Linux, and Windows naming. Native CI

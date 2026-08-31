@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Let selector-less `ug exec` use the nearest `.ugrc`, active selection, or
+  stored default instead of requiring a project pin.
+- Make `ug config path` and `get` strictly read-only; migrate legacy
+  `config.json` only when `config set` writes machine preferences.
+- Complete CLI help for selectors, aliases, defaults, imports, config layering,
+  forced uninstall cleanup, shell arguments, and JSON support.
+- Emit JSON for default clearing, alias mutations, and uninstall; explicitly
+  reject JSON for raw `exec` and `shell` output.
+
 ## 0.2.1 - 2026-07-24
 
 - Reject `ug pin` selectors that match neither an installed build nor a known
