@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2 - 2026-08-31
+
 - Let selector-less `ug exec` use the nearest `.ugrc`, active selection, or
   stored default instead of requiring a project pin.
 - Make `ug config path` and `get` strictly read-only; migrate legacy

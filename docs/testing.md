@@ -66,8 +66,8 @@ cargo install cargo-llvm-cov --version 0.6.21 --locked
 cargo llvm-cov --workspace --all-features --all-targets --locked --summary-only
 ```
 
-The current baseline measured with the pinned Rust 1.85 toolchain is 88.18% lines
-as of 2026-07-11. CI enforces 87%, rounded down to leave a small margin for
+The current baseline measured with the pinned Rust 1.85 toolchain is 89.82% lines
+as of 2026-08-31. CI enforces 87%, rounded down to leave a small margin for
 platform instrumentation differences. The inspectable threshold lives in
 `.github/coverage-threshold`.
 Raise it as coverage improves. Lowering it requires a PR that explains the lost
