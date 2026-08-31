@@ -23,6 +23,13 @@ VERSION_LINE = re.compile(
     r'^  version "[^"\n]+"(?: if OS\.linux\?)?\n', re.MULTILINE
 )
 HOMEPAGE_LINE = re.compile(r'^  homepage "[^"\n]+"\n', re.MULTILINE)
+GUARDED_INSTALL_BLOCK = re.compile(
+    r"^    if "
+    r"(?P<guard>OS\.(?:mac|linux)\? && Hardware::CPU\.(?:arm|intel)\?)\n"
+    r'      bin\.install "ug"\n'
+    r"    end\n",
+    re.MULTILINE,
+)
 CLASS_LINE = "class Ug < Formula"
 FORMULA_COMMENT = "# Formula for the ug Godot version manager."
 TEST_BLOCK = (
@@ -46,15 +53,12 @@ def normalize(contents: str, version: str) -> str:
         raise NormalizationError("formula must contain exactly one homepage")
 
     contents = VERSION_LINE.sub("", contents)
+    contents = GUARDED_INSTALL_BLOCK.sub(
+        lambda match: f'    bin.install "ug" if {match.group("guard")}\n',
+        contents,
+    )
     contents = contents.replace(f"{FORMULA_COMMENT}\n", "")
     contents = contents.replace(CLASS_LINE, f"{FORMULA_COMMENT}\n{CLASS_LINE}")
-    contents, replacements = HOMEPAGE_LINE.subn(
-        lambda match: f'{match.group(0)}  version "{version}" if OS.linux?\n',
-        contents,
-        count=1,
-    )
-    if replacements != 1:
-        raise NormalizationError("could not insert the release version")
 
     if "  test do\n" not in contents:
         if not contents.endswith("\nend\n"):

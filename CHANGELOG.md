@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep generated Homebrew formulas compatible with current strict style and
+  version audits before installing them on macOS and Linux runners.
+
 ## 0.2.2 - 2026-08-31
 
 - Let selector-less `ug exec` use the nearest `.ugrc`, active selection, or
