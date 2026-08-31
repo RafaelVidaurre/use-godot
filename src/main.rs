@@ -475,10 +475,6 @@ fn config_command(
 ) -> Result<()> {
     match command {
         ConfigCommand::Path => {
-            // Migrate under lock so the printed path is the live machine file when
-            // only legacy config.json existed.
-            let _lock = lock(paths)?;
-            let _ = UserConfig::migrate_legacy_if_needed(paths)?;
             if flags.json {
                 let mut value = BTreeMap::new();
                 value.insert("path", paths.config().display().to_string());
@@ -488,8 +484,7 @@ fn config_command(
             }
         }
         ConfigCommand::Get { effective } => {
-            let _lock = lock(paths)?;
-            let configured = UserConfig::migrate_legacy_if_needed(paths)?;
+            let configured = UserConfig::load(paths)?;
             let project = project_settings(paths)?;
             if flags.json {
                 let mut root = serde_json::Map::new();

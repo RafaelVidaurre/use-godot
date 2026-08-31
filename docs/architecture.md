@@ -153,9 +153,10 @@ Resolution order (first set wins):
    overlays (missing key → inherit). Separate from `state.json`.
 5. Default off
 
-Legacy `$UG_ROOT/config.json` is still readable. Migration to `ug.toml` runs under
-the state lock on `ug config path|get|set` (not on unlocked `ug exec` loads). If
-both files exist and disagree, load fails closed.
+Legacy `$UG_ROOT/config.json` is still readable. `ug config path` and `get` are
+strictly read-only: they neither create the managed root nor recover pending
+state. The next `ug config set` migrates legacy values to `ug.toml` under the
+state lock. If both files exist and disagree, load fails closed.
 
 **Shipped vs deferred (design doc):** this release implements opt-in wrap for
 `ug exec`, machine/project `ug.toml`, and the stable headless / stack-chk rules.

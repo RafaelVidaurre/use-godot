@@ -200,7 +200,7 @@ fn ug_toml_unknown_key_errors() {
 }
 
 #[test]
-fn legacy_config_json_migrates_to_machine_ug_toml() {
+fn config_reads_are_non_mutating_and_config_set_migrates_legacy_file() {
     let root = tempdir().unwrap();
     fs::create_dir_all(root.path()).unwrap();
     fs::write(
@@ -208,23 +208,35 @@ fn legacy_config_json_migrates_to_machine_ug_toml() {
         r#"{"tolerate_exit_noise":true,"experimental_exit_noise_rules":false}"#,
     )
     .unwrap();
+    fs::write(root.path().join("pending-operation.json"), b"{}\n").unwrap();
 
+    ug(root.path())
+        .args(["config", "path"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ug.toml"));
     ug(root.path())
         .args(["config", "get"])
         .assert()
         .success()
         .stdout(predicate::str::contains("tolerate-exit-noise: true"));
 
+    assert!(root.path().join("config.json").is_file());
+    assert!(!root.path().join("ug.toml").exists());
+    assert!(root.path().join("pending-operation.json").is_file());
+    assert!(!root.path().join("state.lock").exists());
+
+    fs::remove_file(root.path().join("pending-operation.json")).unwrap();
+    ug(root.path())
+        .args(["config", "set", "experimental-exit-noise-rules", "true"])
+        .assert()
+        .success();
+
     assert!(root.path().join("ug.toml").is_file());
     assert!(!root.path().join("config.json").exists());
     let body = fs::read_to_string(root.path().join("ug.toml")).unwrap();
     assert!(body.contains("tolerate-exit-noise = true"));
-
-    ug(root.path())
-        .args(["--json", "config", "path"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("ug.toml"));
+    assert!(body.contains("experimental-exit-noise-rules = true"));
 }
 
 #[cfg(unix)]

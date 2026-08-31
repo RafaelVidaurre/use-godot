@@ -15,7 +15,7 @@
 | --- | --- |
 | Opt-in wrap for `ug exec` only | **Shipped** |
 | CLI / env / machine `$UG_ROOT/ug.toml` / project `ug.toml` chain | **Shipped** |
-| Legacy `config.json` → `ug.toml` migration (locked config cmds) | **Shipped** |
+| Read-only legacy `config.json`; migration on locked `config set` | **Shipped** |
 | Stable rules: headless SIGABRT+`--quit*`; stack-chk+PID correlator | **Shipped** |
 | Multi-call managed runtime / shim rebind on `config set` | **Deferred** |
 | Unix signal forwarding wrapper → Godot | **Deferred** |
