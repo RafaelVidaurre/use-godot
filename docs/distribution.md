@@ -85,12 +85,10 @@ irm https://github.com/RafaelVidaurre/use-godot/releases/latest/download/use-god
 ```
 
 Homebrew formulas include macOS and Linux target branches. The post-release
-workflow pins an explicit Linux formula version from the cargo-dist release
-plan, normalizes the formula once, then runs `brew style`, strict online audit,
-installation, and `brew test` on macOS arm64 and Linux x86_64. Linux needs the
-explicit version so Homebrew does not interpret a target triple in an archive
-name as the package version; macOS detects the version from its URL and rejects
-a redundant declaration, so the pin is conditional on `OS.linux?`.
+workflow normalizes cargo-dist's formula once, removes redundant explicit
+version declarations, then runs `brew style`, strict online audit, installation,
+and `brew test` on macOS arm64 and Linux x86_64. Homebrew derives the release
+version from the tagged release URLs on both platforms.
 
 To recover a published tap formula without moving or replacing a release tag,
 dispatch the audit workflow from `main` with the existing release version:
