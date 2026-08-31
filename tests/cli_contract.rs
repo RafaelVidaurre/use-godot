@@ -55,6 +55,20 @@ fn assert_installation_json(value: &Value, expected_variant: &str) {
     assert!(!string_field(source, "original_path").is_empty());
 }
 
+fn assert_identity_strings(
+    value: &Value,
+    expected_version: &str,
+    expected_channel: &str,
+    expected_variant: &str,
+) {
+    let identity = object(value)
+        .get("identity")
+        .expect("installation has identity");
+    assert_eq!(string_field(identity, "version"), expected_version);
+    assert_eq!(string_field(identity, "channel"), expected_channel);
+    assert_eq!(string_field(identity, "variant"), expected_variant);
+}
+
 fn installed_manifest(root: &Path) -> Value {
     let installation = fs::read_dir(root.join("versions"))
         .unwrap()
@@ -154,6 +168,43 @@ fn json_and_persisted_state_contracts_have_stable_required_fields() {
     for required in ["version", "channel", "variant", "platform", "arch"] {
         assert!(identity_fields.contains(required));
     }
+}
+
+#[test]
+fn installation_json_uses_selector_shaped_identity_strings() {
+    let root = tempdir().unwrap();
+    let sources = tempdir().unwrap();
+    for (selector, source_name, expected_variant) in [
+        (
+            "4.8-beta2@custom:studio",
+            "Godot-custom-json",
+            "custom:studio",
+        ),
+        ("4.8-beta2@godotjs", "Godot-js-json", "godotjs"),
+    ] {
+        let source = fake_godot(&sources, source_name);
+        let installed = success_json(
+            ug(root.path())
+                .args(["--json", "install", selector, "--from"])
+                .arg(source),
+        );
+        assert_identity_strings(&installed, "4.8.0", "beta2", expected_variant);
+
+        let selected = success_json(ug(root.path()).args(["--json", "which", selector]));
+        assert_identity_strings(&selected, "4.8.0", "beta2", expected_variant);
+    }
+
+    let listed = success_json(ug(root.path()).args(["--json", "list"]));
+    let listed = listed.as_array().expect("list JSON is an array");
+    assert_eq!(listed.len(), 2);
+    let variants = listed
+        .iter()
+        .map(|item| {
+            let identity = object(item).get("identity").unwrap();
+            string_field(identity, "variant")
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(variants, BTreeSet::from(["custom:studio", "godotjs"]));
 }
 
 #[test]
@@ -333,7 +384,7 @@ fn help_documents_non_obvious_resolution_and_side_effects() {
         (&["config", "path", "--help"], &["without creating it"]),
         (
             &["pin", "--help"],
-            &["Installed selector or alias", "known official release"],
+            &["Installed selector or alias", "known Godot release"],
         ),
     ];
 
