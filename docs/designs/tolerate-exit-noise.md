@@ -22,8 +22,10 @@
 | Doctor config↔shim checks | **Deferred** |
 | `godot` shim mediation when tolerate is on | **Deferred** (shim remains direct link) |
 
-Treat README and `docs/architecture.md` as source of truth for shipped behavior;
-sections below that describe multi-call runtime remain design intent for follow-ups.
+The detailed proposal below is retained as design history and includes
+superseded data-format sketches. Treat README and `docs/architecture.md` as the
+source of truth for shipped behavior; explicitly deferred sections remain design
+intent for follow-ups.
 
 ---
 

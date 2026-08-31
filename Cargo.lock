@@ -1688,7 +1688,7 @@ dependencies = [
 
 [[package]]
 name = "use-godot"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "anyhow",
  "assert_cmd",

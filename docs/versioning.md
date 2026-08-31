@@ -8,10 +8,10 @@ optional SemVer prerelease identifiers.
 
 Cargo treats the left-most non-zero component as the compatibility boundary.
 For a `0.y.z` release, `y` therefore acts like the major version and `z` is the
-compatible release component. While `ug` is on `0.1.x`:
+compatible release component. On the current `0.2.x` release line:
 
-- breaking changes require `0.2.0`;
-- compatible features and fixes use the next `0.1.z` version.
+- breaking changes require `0.3.0`;
+- compatible features and fixes use the next `0.2.z` version.
 
 This follows the [Cargo SemVer compatibility guidance][cargo-semver]. It is
 more specific than treating every pre-1.0 release as freely incompatible.
