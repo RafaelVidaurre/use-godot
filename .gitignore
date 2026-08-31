@@ -2,3 +2,6 @@
 /.ug-test/
 *.tmp
 
+# Local agent output and tracker recovery state may contain private metadata.
+/.beads.backup-pre-recovery/
+/.furanku-skills/
