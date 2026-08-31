@@ -179,8 +179,9 @@ Optional boolean preferences use the same `ug.toml` format in two places:
 | `$UG_ROOT/ug.toml` | Machine defaults (`ug config get` / `set`) |
 | Project tree `ug.toml` | Sparse overrides; closer dir wins per key |
 
-`.ugrc` remains the version pin only. A legacy `$UG_ROOT/config.json` is read
-once and rewritten as machine `ug.toml`.
+`.ugrc` remains the version pin only. A legacy `$UG_ROOT/config.json` remains
+readable without mutation and is rewritten as machine `ug.toml` by the next
+`ug config set`.
 
 ```toml
 # machine or project

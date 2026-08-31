@@ -10,7 +10,7 @@ use crate::{atomic, paths::Paths, project::ProjectSettings};
 ///
 /// Project `ug.toml` files may override these per directory (see
 /// [`resolve_exit_noise_policy`]). Legacy `$UG_ROOT/config.json` is still read
-/// and migrated under the state lock via [`UserConfig::migrate_legacy_if_needed`].
+/// without mutation and is migrated by the next machine config write.
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct UserConfig {
     /// When true, wrap Godot and apply exit-noise rules (default false).
