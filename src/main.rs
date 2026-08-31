@@ -110,10 +110,13 @@ enum Commands {
     /// Print the active identity.
     Current,
     /// Print an installed Godot executable path.
-    Which { selector: Option<String> },
+    Which {
+        /// Installed selector. When omitted: nearest .ugrc, active selection, then default.
+        selector: Option<String>,
+    },
     /// Run one command with an installed Godot without switching.
     Exec {
-        /// Installed selector; reads .ugrc when omitted.
+        /// Installed selector. When omitted: nearest .ugrc, active selection, then default.
         selector: Option<String>,
         #[arg(last = true, required = true)]
         args: Vec<String>,
@@ -380,13 +383,7 @@ fn run(cli: Cli) -> Result<u8> {
         Commands::Which { selector } => {
             let state = State::load(&paths)?;
             let items = load_installations(&paths)?;
-            let selector = match selector {
-                Some(selector) => Some(selector),
-                None => project_selector()?,
-            }
-            .or_else(|| state.active.clone())
-            .or_else(|| state.default.clone())
-            .context("no selector, .ugrc, active version, or default")?;
+            let selector = selector_or_project_or_state(selector, &state)?;
             let item = resolve_installed(&selector, &state, &items)?;
             if flags.json {
                 print_json(item)?;
@@ -395,8 +392,8 @@ fn run(cli: Cli) -> Result<u8> {
             }
         }
         Commands::Exec { selector, args } => {
-            let selector = selector_or_project(selector)?;
             let state = State::load(&paths)?;
+            let selector = selector_or_project_or_state(selector, &state)?;
             let items = load_installations(&paths)?;
             let item = resolve_installed(&selector, &state, &items)?;
             let user_config = UserConfig::load(&paths)?;
@@ -898,6 +895,16 @@ fn selector_or_project(explicit: Option<String>) -> Result<String> {
     }
     project_selector()?
         .context("no selector provided and no .ugrc found in this directory or its parents")
+}
+
+fn selector_or_project_or_state(explicit: Option<String>, state: &State) -> Result<String> {
+    match explicit {
+        Some(selector) => Some(selector),
+        None => project_selector()?,
+    }
+    .or_else(|| state.active.clone())
+    .or_else(|| state.default.clone())
+    .context("no Godot version selected; pass a selector, add .ugrc, or run `ug use <selector>`")
 }
 
 fn project_selector() -> Result<Option<String>> {

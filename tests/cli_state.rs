@@ -116,6 +116,29 @@ fn default_activates_the_selected_build() {
 }
 
 #[test]
+fn exec_without_selector_uses_active_version_without_project_pin() {
+    let root = TempDir::new().unwrap();
+    let sources = TempDir::new().unwrap();
+    let source = fake_godot(&sources, "Godot-active-exec");
+
+    ug(root.path())
+        .args(["install", "4.7@double", "--from"])
+        .arg(source)
+        .assert()
+        .success();
+    ug(root.path())
+        .args(["use", "4.7@double"])
+        .assert()
+        .success();
+
+    ug(root.path())
+        .args(["exec", "--", "--editor", "project.godot"])
+        .assert()
+        .success()
+        .stdout("fake:--editor project.godot\n");
+}
+
+#[test]
 fn activating_a_second_build_atomically_replaces_the_shim() {
     let root = TempDir::new().unwrap();
     let sources = TempDir::new().unwrap();

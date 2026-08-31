@@ -120,6 +120,11 @@ one command model; standalone completions support additional shells.
 
 ## One-shot execution
 
+`ug exec` and `ug which` resolve an omitted selector in this order: nearest
+project `.ugrc`, active selection, then stored default. An explicit selector
+always wins. `install` and `use` intentionally stop after project discovery
+because choosing a version is the purpose of those mutating commands.
+
 The managed `godot` shim is always a direct filesystem link to the selected
 binary; invoking it does not run `ug`. On Unix, `ug exec` uses `exec(2)` so the
 Godot process replaces `ug` and keeps the same PID, terminal, signals, and job
