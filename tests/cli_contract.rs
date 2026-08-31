@@ -196,6 +196,165 @@ fn quiet_suppresses_routine_output_but_not_json_or_query_results() {
 }
 
 #[test]
+fn default_unset_json_reports_a_null_default() {
+    let root = tempdir().unwrap();
+
+    let cleared = success_json(ug(root.path()).args(["--json", "default", "--unset"]));
+
+    assert_eq!(cleared, serde_json::json!({ "default": null }));
+}
+
+#[test]
+fn alias_mutation_json_reports_the_changed_alias() {
+    let root = tempdir().unwrap();
+    let sources = tempdir().unwrap();
+    let source = fake_godot(&sources, "Godot-alias-json");
+    ug(root.path())
+        .args(["--quiet", "install", "4.7@double", "--from"])
+        .arg(source)
+        .assert()
+        .success();
+
+    let created =
+        success_json(ug(root.path()).args(["--json", "alias", "set", "physics", "4.7@double"]));
+    let canonical = string_field(&created, "physics");
+    assert!(canonical.starts_with("4.7.0-stable@double+"));
+
+    let removed = success_json(ug(root.path()).args(["--json", "alias", "remove", "physics"]));
+    assert_eq!(removed, serde_json::json!({ "removed": "physics" }));
+}
+
+#[test]
+fn forced_uninstall_json_reports_the_installation_and_clears_references() {
+    let root = tempdir().unwrap();
+    let sources = tempdir().unwrap();
+    let source = fake_godot(&sources, "Godot-uninstall-json");
+    ug(root.path())
+        .args(["--quiet", "install", "4.7@double", "--from"])
+        .arg(source)
+        .assert()
+        .success();
+    ug(root.path())
+        .args(["--quiet", "alias", "set", "physics", "4.7@double"])
+        .assert()
+        .success();
+    ug(root.path())
+        .args(["--quiet", "default", "physics"])
+        .assert()
+        .success();
+
+    let removed =
+        success_json(ug(root.path()).args(["--json", "uninstall", "4.7@double", "--force"]));
+    assert_installation_json(&removed, "double");
+    assert_eq!(
+        success_json(ug(root.path()).args(["--json", "alias", "list"])),
+        serde_json::json!({})
+    );
+    ug(root.path()).arg("current").assert().failure();
+    ug(root.path()).arg("default").assert().failure();
+}
+
+#[test]
+fn raw_output_commands_reject_json_instead_of_silently_ignoring_it() {
+    let root = tempdir().unwrap();
+
+    for arguments in [
+        &["--json", "shell", "path"][..],
+        &["--json", "exec", "4.7", "--", "--version"][..],
+    ] {
+        ug(root.path())
+            .args(arguments)
+            .assert()
+            .failure()
+            .stdout(predicate::str::is_empty())
+            .stderr(predicate::str::contains("--json is not supported"));
+    }
+}
+
+#[test]
+fn help_documents_non_obvious_resolution_and_side_effects() {
+    let root = tempdir().unwrap();
+    let cases: &[(&[&str], &[&str])] = &[
+        (&["--help"], &["not supported by exec or shell"]),
+        (
+            &["install", "--help"],
+            &[
+                "Uses .ugrc when omitted",
+                "bundle/directory for double, godotjs, and custom variants",
+                "Required SHA-256 for single-file standard or mono imports",
+            ],
+        ),
+        (
+            &["default", "--help"],
+            &[
+                "set and activate it",
+                "store as the default and make active",
+                "without changing the active selection",
+            ],
+        ),
+        (
+            &["which", "--help"],
+            &["nearest .ugrc, active selection, then default"],
+        ),
+        (
+            &["exec", "--help"],
+            &[
+                "nearest .ugrc, active selection, then default",
+                "passed unchanged to Godot",
+            ],
+        ),
+        (
+            &["alias", "--help"],
+            &[
+                "Create or replace an alias",
+                "Remove a named alias",
+                "List aliases",
+                "Resolve an alias",
+            ],
+        ),
+        (
+            &["alias", "set", "--help"],
+            &["Alias name to create", "resolve now"],
+        ),
+        (
+            &["uninstall", "--help"],
+            &[
+                "aliases that point to it",
+                "active/default version and clear those references",
+            ],
+        ),
+        (
+            &["config", "get", "--help"],
+            &[
+                "machine values and project overrides",
+                "environment, project, and machine precedence",
+            ],
+        ),
+        (&["config", "path", "--help"], &["without creating it"]),
+        (
+            &["pin", "--help"],
+            &["Installed selector or alias", "known official release"],
+        ),
+    ];
+
+    for (arguments, expected_fragments) in cases {
+        let output = ug(root.path()).args(*arguments).output().unwrap();
+        assert!(
+            output.status.success(),
+            "help command {arguments:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        for fragment in *expected_fragments {
+            assert!(
+                stdout.contains(fragment),
+                "help command {arguments:?} omitted {fragment:?}:\n{stdout}"
+            );
+        }
+    }
+}
+
+#[test]
 fn documented_selector_and_older_state_shapes_remain_compatible() {
     let root = tempdir().unwrap();
     let sources = tempdir().unwrap();

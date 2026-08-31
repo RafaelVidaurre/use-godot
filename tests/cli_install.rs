@@ -41,6 +41,23 @@ fn all_non_official_variant_families_import_independently() {
 }
 
 #[test]
+fn official_local_imports_reject_bundles_as_documented() {
+    let root = TempDir::new().unwrap();
+    let sources = TempDir::new().unwrap();
+    let bundle = sources.path().join("Godot.app");
+    fs::create_dir(&bundle).unwrap();
+
+    ug(root.path())
+        .args(["install", "4.7", "--from"])
+        .arg(bundle)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "local standard/mono imports must be a single executable file",
+        ));
+}
+
+#[test]
 fn official_download_is_verified_and_committed_atomically() {
     let root = TempDir::new().unwrap();
     let archive = godot_zip();

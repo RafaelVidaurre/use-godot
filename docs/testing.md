@@ -103,5 +103,10 @@ Integration tests execute the compiled CLI against temporary roots and cover:
 - interrupted staging visibility in `doctor`;
 - generated zsh, bash, and fish integration from isolated roots.
 
+The CLI contract suite also guards complete help metadata recursively and checks
+the non-obvious claims against black-box behavior: selector fallback, default
+activation, forced-reference cleanup, non-mutating config reads, import variant
+restrictions, and the JSON/raw-output boundary.
+
 The hidden `UG_RELEASE_API`/`--api-base` injection exists for deterministic
 testing. Production defaults to the official `godotengine/godot-builds` API.

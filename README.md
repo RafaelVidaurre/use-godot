@@ -194,8 +194,9 @@ tolerate-exit-noise = true
 tolerate-exit-noise = false
 ```
 
-Unknown keys are rejected. Inspect the merge with
-`ug config get --effective` (and `--json` for machine + project + effective).
+Unknown keys are rejected. `ug config get` shows machine values plus project
+overrides and their source files; add `--effective` to resolve the complete
+CLI/environment/project/machine precedence. Both forms support `--json`.
 
 ### Aliases
 
@@ -247,17 +248,23 @@ on disk. Default variant is `standard`. Import-only: `double`, `godotjs`, and
 | `ug install [SELECTOR]` | install official or import local |
 | `ug list` / `ug list --remote` | installed builds / upstream releases |
 | `ug use [SELECTOR]` | select for the `godot` shim |
-| `ug default [SELECTOR]` | get, set, or clear the default |
+| `ug default [SELECTOR]` | show, set-and-activate, or clear the default |
 | `ug pin SELECTOR` | write `.ugrc` |
-| `ug current` / `ug which` | active name / executable path |
-| `ug exec [SELECTOR] -- …` | run Godot without switching |
+| `ug current` / `ug which [SELECTOR]` | active name / resolved executable path |
+| `ug exec [SELECTOR] -- …` | run project, active, or default Godot without switching |
 | `ug alias …` | named selectors |
-| `ug uninstall SELECTOR` | remove an install |
+| `ug uninstall SELECTOR` | remove an install and aliases pointing to it |
 | `ug doctor` | check managed state |
-| `ug shell …` | shim path, init, completions |
+| `ug config …` | inspect or change machine/project policy |
+| `ug shell …` | emit shim paths, init code, or completions as plain text |
 
 `ug help` and `ug help COMMAND` have the full flags. Useful globals: `--json`,
 `--quiet`, `--root` / `UG_ROOT`.
+
+`--json` is supported by data commands: install/list/use/default, aliases,
+current/which/pin/uninstall, doctor, and config. Mutations return the changed or
+removed object. `exec` preserves Godot's stdout/stderr and `shell` emits sourceable
+text, so both reject `--json` instead of silently ignoring it.
 
 Exit codes: `1` on error, `2` from `doctor` when state is unhealthy, and
 `exec` passes through the child process status.
