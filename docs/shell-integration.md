@@ -4,7 +4,8 @@
 `which`, and `exec` are available as soon as `ug` is installed:
 
 ```sh
-ug exec 4.7 -- --editor project.godot
+ug use 4.7
+ug exec -- --editor project.godot
 ```
 
 Shell integration adds two optional conveniences:

@@ -82,7 +82,7 @@ ug use 4.7                # make it current
 
 ug current                # which build is active
 ug which                  # path to that binary
-ug exec 4.7 -- --version  # run Godot without switching
+ug exec -- --version      # run the active build without switching
 ```
 
 ### Tolerate known exit noise (opt-in)
@@ -164,8 +164,11 @@ ug which
 ug exec -- --editor project.godot
 ```
 
-An explicit selector always wins over `.ugrc`. Commit the file if you want the
-team on the same Godot.
+An explicit selector always wins over `.ugrc`. For `which` and `exec`, resolution
+then falls back to the active selection and finally the stored default, so a pin
+is never required after `ug use`. `install` and `use` still require either an
+explicit selector or `.ugrc`. Commit the file if you want the team on the same
+Godot.
 
 ### Project settings (`ug.toml`)
 
