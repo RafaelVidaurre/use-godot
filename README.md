@@ -92,6 +92,15 @@ signal that still returns non-zero and can trip `set -e` / CI. `ug` can wrap
 those runs and rewrite **only** matched exits to `0`. Default is **off**;
 legitimate crashes keep normal exit codes and crash UI.
 
+On Windows, the same option also suppresses recognized **trailing shutdown
+diagnostics** on stdout/stderr when Godot exits with status `0`: ObjectDB and
+resource summaries, RID leaks, PagedAllocator pages, and rendering shader leaks.
+Unrelated output stays visible; failed runs retain all diagnostics. This is an
+opt-in output policy, not proof that a reported leak is harmless or fixed.
+Unknown formats, verbose detail listings, incomplete records, and tails over
+64 KiB pass through. Godot's own log files are not filtered. A short notice
+reports suppression unless `--quiet` is set.
+
 ```sh
 # one shot
 ug --tolerate-exit-noise exec -- --path myproj --quit

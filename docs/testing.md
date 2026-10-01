@@ -45,6 +45,35 @@ version-manager state, or system command links. Platform-specific filesystem
 assertions must be guarded with `cfg`; shared behavior should remain runnable on
 every supported CI platform.
 
+### Windows shutdown-output acceptance
+
+`cli_exit_noise.rs` runs a native executable fixture that replays the captured
+shutdown signatures on both streams, verifies failure/NTSTATUS preservation,
+config overrides and quiet mode, and writes more than a pipe buffer to each
+stream to detect deadlocks. `tests/fixtures/windows-shutdown.txt` contains only
+engine diagnostics from a Windows Godot 4.7 double-precision capture (no project
+paths or application output). Unit tests also cover byte preservation, CRLF,
+partial reads, incomplete records, overflow, and I/O failures.
+
+For a real-engine smoke on Windows, pass an existing trusted Godot executable
+and a new evidence directory:
+
+```powershell
+python scripts/smoke-windows-exit-noise.py target/debug/ug.exe C:/engines/godot.exe C:/evidence/ug-noise-smoke
+```
+
+The smoke uses isolated home/config/project/managed roots and deliberately leaks
+a Node. It checks default output, opt-in filtering, quiet mode and a failed run,
+retaining stdout/stderr and binary hashes. Through winremote, submit it as an
+owned hidden run with exclusive access to its evidence directory and shared
+access to the engine. Require terminal status and complete cleanup before
+acceptance. No live installation or project configuration is changed.
+
+Hosts without Rust can execute cross-compiled Windows test binaries. Set
+`UG_TEST_UG_BINARY` to the relocated `ug.exe` and `UG_TEST_SHUTDOWN_CHILD` to the
+precompiled `tests/fixtures/shutdown_child.rs` executable when running the CLI
+suite. These are test-only hooks. The real-engine smoke does not use them.
+
 CI runs these tests natively on Linux x86_64, Linux arm64, macOS Apple Silicon,
 macOS Intel, and Windows x86_64. Each runner also builds the release binary and
 runs `scripts/smoke-release-installers.py`. That smoke installs twice to cover

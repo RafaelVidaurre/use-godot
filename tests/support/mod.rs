@@ -55,7 +55,11 @@ fn isolated_ug_process(environment_root: &Path, cwd: &Path) -> std::process::Com
         fs::create_dir_all(directory).unwrap();
     }
 
-    let mut command = std::process::Command::new(assert_cmd::cargo::cargo_bin!("ug"));
+    // Native execution of cross-compiled suites may relocate the build tree.
+    let binary = std::env::var_os("UG_TEST_UG_BINARY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| assert_cmd::cargo::cargo_bin!("ug").to_path_buf());
+    let mut command = std::process::Command::new(binary);
     command
         .env_remove("UG_ROOT")
         .env_remove("UG_RELEASE_API")

@@ -42,7 +42,7 @@ struct Cli {
     /// Suppress ug's routine output and progress; never suppress Godot output.
     #[arg(short, long, global = true)]
     quiet: bool,
-    /// Override exit-noise tolerance for exec and config get --effective.
+    /// Tolerate known exit noise (Windows: filter successful shutdown diagnostics).
     #[arg(long, global = true, action = ArgAction::SetTrue, overrides_with = "no_tolerate_exit_noise")]
     tolerate_exit_noise: bool,
     /// Disable exit-noise tolerance for exec and config get --effective.

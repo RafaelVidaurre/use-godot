@@ -1,0 +1,26 @@
+ERROR: 32 shaders of type SceneForwardClusteredShaderRD were never freed
+   at: ~ShaderRD (servers\rendering\renderer_rd\shader_rd.cpp:1235)
+WARNING: 300 RIDs of type "UniformBuffer" were leaked.
+   at: _free_rids (servers\rendering\rendering_device.cpp:8686)
+WARNING: 1691 RIDs of type "IndexArray" were leaked.
+   at: _free_rids (servers\rendering\rendering_device.cpp:8686)
+WARNING: 1691 RIDs of type "IndexBuffer" were leaked.
+   at: _free_rids (servers\rendering\rendering_device.cpp:8686)
+WARNING: 42 RIDs of type "VertexArray" were leaked.
+   at: _free_rids (servers\rendering\rendering_device.cpp:8686)
+WARNING: 864 RIDs of type "VertexBuffer" were leaked.
+   at: _free_rids (servers\rendering\rendering_device.cpp:8686)
+WARNING: 756 RIDs of type "Texture" were leaked.
+   at: finalize (servers\rendering\rendering_device.cpp:8900)
+WARNING: 3545 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core\object\object.cpp:2535)
+ERROR: 1608 resources still in use at exit (run with --verbose for details).
+   at: clear (core\io\resource.cpp:822)
+ERROR: Pages in use exist at exit in PagedAllocator: N12VariantPools12BucketMediumE
+   at: ~PagedAllocator (./core/templates/paged_allocator.h:170)
+ERROR: Pages in use exist at exit in PagedAllocator: N12VariantPools11BucketSmallE
+   at: ~PagedAllocator (./core/templates/paged_allocator.h:170)
+ERROR: 193 RID allocations of type 'N10RendererRD11MeshStorage4MeshE' were leaked at exit.
+ERROR: 313 RID allocations of type 'N10RendererRD15MaterialStorage8MaterialE' were leaked at exit.
+ERROR: 32 RID allocations of type 'N10RendererRD15MaterialStorage6ShaderE' were leaked at exit.
+ERROR: 394 RID allocations of type 'N10RendererRD14TextureStorage7TextureE' were leaked at exit.

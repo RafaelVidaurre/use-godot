@@ -435,3 +435,93 @@ fn wrap_mode_is_parent_when_tolerate_on() {
         "when tolerate is on, Godot must be a child (different PID)"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_shutdown_output_policy_preserves_failures_and_unrelated_output() {
+    use std::{path::PathBuf, process::Command};
+
+    let root = tempdir().unwrap();
+    let sources = tempdir().unwrap();
+    // Allows native execution of cross-compiled test artifacts on a host without
+    // rustc. CI normally compiles the fixture using its native toolchain.
+    let source = if let Some(path) = std::env::var_os("UG_TEST_SHUTDOWN_CHILD") {
+        PathBuf::from(path)
+    } else {
+        let path = sources.path().join("shutdown-child.exe");
+        assert!(
+            Command::new("rustc")
+                .arg(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/tests/fixtures/shutdown_child.rs"
+                ))
+                .arg("-o")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        path
+    };
+    ug(root.path())
+        .args(["--quiet", "install", "4.7@double", "--from"])
+        .arg(source)
+        .assert()
+        .success();
+
+    let run = |flags: &[&str], code: &str, mode: &str| {
+        let mut command = support::ug_process(root.path());
+        command
+            .args(flags)
+            .args(["exec", "4.7@double", "--", code, mode]);
+        command.output().unwrap()
+    };
+    let raw = run(&[], "0", "normal");
+    assert!(raw.status.success());
+    assert!(String::from_utf8_lossy(&raw.stdout).contains("were leaked at exit"));
+    assert!(String::from_utf8_lossy(&raw.stderr).contains("were leaked at exit"));
+    let filtered = run(&["--tolerate-exit-noise"], "0", "normal");
+    assert!(filtered.status.success());
+    assert_eq!(filtered.stdout, b"stdout marker\r\n");
+    let err = String::from_utf8_lossy(&filtered.stderr);
+    assert!(err.starts_with("SCRIPT ERROR: unrelated failure remains visible\n"));
+    assert!(err.contains("godot-windows-shutdown-leaks (30 diagnostics, raw status 0)"));
+    assert!(!err.contains("were leaked"));
+    let quiet = run(&["--quiet", "--tolerate-exit-noise"], "0", "normal");
+    assert_eq!(quiet.stdout, filtered.stdout);
+    assert_eq!(
+        quiet.stderr,
+        b"SCRIPT ERROR: unrelated failure remains visible\n"
+    );
+    // Exit 7, access violation, and a nonzero NTSTATUS with low byte zero.
+    for (code, expected) in [("7", 7), ("-1073741819", 5), ("-1073741824", 1)] {
+        let failure = run(&["--tolerate-exit-noise"], code, "normal");
+        assert_eq!(failure.status.code(), Some(expected));
+        assert_eq!(failure.stdout, raw.stdout);
+        assert_eq!(failure.stderr, raw.stderr);
+    }
+    let after = run(&["--tolerate-exit-noise"], "0", "after");
+    let after_raw = run(&[], "0", "after");
+    assert_eq!(after.stdout, after_raw.stdout);
+    assert_eq!(after.stderr, after_raw.stderr);
+    let large = run(&["--quiet", "--tolerate-exit-noise"], "0", "large");
+    assert!(large.status.success());
+    assert_eq!(large.stdout.len(), 2048 * 129 + quiet.stdout.len());
+    assert_eq!(large.stderr.len(), 2048 * 129 + quiet.stderr.len());
+
+    ug(root.path())
+        .args(["config", "set", "tolerate-exit-noise", "true"])
+        .assert()
+        .success();
+    assert_eq!(run(&["--quiet"], "0", "normal").stdout, quiet.stdout);
+    let off = run(&["--no-tolerate-exit-noise"], "0", "normal");
+    assert_eq!(off.stdout, raw.stdout);
+    assert_eq!(off.stderr, raw.stderr);
+    let env_off = support::ug_process(root.path())
+        .env("UG_TOLERATE_EXIT_NOISE", "0")
+        .args(["exec", "4.7@double", "--", "0"])
+        .output()
+        .unwrap();
+    assert_eq!(env_off.stdout, raw.stdout);
+    assert_eq!(env_off.stderr, raw.stderr);
+}
