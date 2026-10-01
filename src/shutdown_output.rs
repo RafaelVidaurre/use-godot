@@ -268,6 +268,7 @@ mod tests {
         assert_eq!(filtered(CAPTURE, false), (CAPTURE.to_vec(), 0));
         let crlf = String::from_utf8(CAPTURE.to_vec())
             .unwrap()
+            .replace("\r\n", "\n")
             .replace('\n', "\r\n");
         assert_eq!(filtered(crlf.as_bytes(), true), (Vec::new(), 15));
     }
