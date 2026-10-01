@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.3 - 2026-10-01
+
 - Extend `--tolerate-exit-noise` on Windows to suppress recognized trailing
   shutdown leak diagnostics on successful runs, preserving unrelated output and
   all diagnostics on failed exits.
