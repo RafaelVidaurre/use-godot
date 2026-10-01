@@ -43,7 +43,7 @@ sha2 = "0.10"
 tempfile = "3.20"
 thiserror = "2.0"
 toml = { version = "0.8", features = ["parse", "display"] }
-zip = { version = "4.3", default-features = false, features = ["deflate"] }
+zip = { version = "7.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
