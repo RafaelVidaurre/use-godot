@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Extend `--tolerate-exit-noise` on Windows to suppress recognized trailing
+  shutdown leak diagnostics on successful runs, preserving unrelated output and
+  all diagnostics on failed exits.
 - Keep generated Homebrew formulas compatible with current strict style and
   version audits before installing them on macOS and Linux runners.
 

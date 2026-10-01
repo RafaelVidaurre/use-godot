@@ -17,6 +17,7 @@
 | CLI / env / machine `$UG_ROOT/ug.toml` / project `ug.toml` chain | **Shipped** |
 | Read-only legacy `config.json`; migration on locked `config set` | **Shipped** |
 | Stable rules: headless SIGABRT+`--quit*`; stack-chk+PID correlator | **Shipped** |
+| Windows trailing shutdown-output filtering on successful exit | **Shipped** (see architecture; supersedes exit-code-only scope below) |
 | Multi-call managed runtime / shim rebind on `config set` | **Deferred** |
 | Unix signal forwarding wrapper → Godot | **Deferred** |
 | Doctor config↔shim checks | **Deferred** |

@@ -22,6 +22,26 @@ produce the same key. Built-in identities such as `macos-universal`,
 `linux-x86_64`, and `windows-arm64` contain no escaped characters and remain
 unchanged.
 
+Windows additionally pipes stdout and stderr through concurrent readers in
+`shutdown_output.rs`. Each reader forwards ordinary complete lines immediately
+and holds only a contiguous trailing sequence of known shutdown records. The
+ObjectDB/resource/PagedAllocator/shader/rendering-device records require the
+matching engine function and source path; RID allocator summaries have no
+location line. Counts and type names are parsed with anchored grammars, not
+substring matching. Both slash styles and CRLF are supported without changing
+forwarded bytes. This covers custom double-precision builds as well as standard
+builds; no Windows crash status is rewritten to success.
+
+Pending lines are bounded to 8 KiB and candidate tails to 64 KiB per stream.
+Overflow, malformed or incomplete records, and unknown trailing output are
+replayed; tail overflow disables filtering for that stream. Only the original
+successful child status permits suppression. Reader/output errors fail the
+wrapper and readers drain remaining bytes to avoid blocking the child. Ordering
+within each stream is preserved; ordering between stdout and stderr is not
+guaranteed. Partial lines may wait for a newline or the line limit. Raw engine
+log files and verbose detail listings remain available, as does
+`--no-tolerate-exit-noise`. Tolerance acknowledges output noise, not leak repair.
+
 Aliases resolve to canonical installed identities rather than floating strings.
 This makes an alias update explicit and prevents a future remote release from
 silently changing an established environment.
@@ -173,7 +193,8 @@ state. The next `ug config set` migrates legacy values to `ug.toml` under the
 state lock. If both files exist and disagree, load fails closed.
 
 **Shipped vs deferred (design doc):** this release implements opt-in wrap for
-`ug exec`, machine/project `ug.toml`, and the stable headless / stack-chk rules.
+`ug exec`, machine/project `ug.toml`, the stable headless / stack-chk rules, and
+Windows shutdown-output filtering on successful exits.
 Not yet shipped: multi-call managed runtime / shim rebind, Unix signal forwarding
 from wrapper to Godot, and doctor config↔shim checks. Wrap mode is spawn+wait only;
 signals delivered solely to the wrapper PID are not forwarded (tracked follow-up).
