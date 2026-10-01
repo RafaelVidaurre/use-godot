@@ -1,0 +1,4 @@
+# Keep source, scripts, and byte-sensitive text fixtures identical on every host.
+# Explicit eol overrides contributors' core.autocrlf settings; auto leaves binary
+# files untouched. Tests that need CRLF construct it explicitly.
+* text=auto eol=lf

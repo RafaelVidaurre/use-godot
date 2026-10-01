@@ -1,5 +1,10 @@
 # Testing
 
+Tracked text uses LF line endings on every platform, enforced by
+`.gitattributes` (including when `core.autocrlf=true`) and suggested to editors
+by `.editorconfig`. Byte-sensitive tests construct CRLF explicitly rather than
+depending on the checkout's platform defaults.
+
 Run the complete local gate:
 
 ```sh
